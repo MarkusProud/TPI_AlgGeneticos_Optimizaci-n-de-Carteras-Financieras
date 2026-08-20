@@ -1,42 +1,41 @@
 import numpy as np
+import matplotlib.pyplot as plt
 import pandas as pd
 import yfinance as yf
-
 
 # ============================================================
 # 1. ACTIVOS
 # ============================================================
 
-activos = {
+tickers = {
     "YPF": "YPF",
-    "MICROSOFT": "MSFT",
-    "APPLE": "AAPL",
     "MERCADOLIBRE": "MELI",
+    "APPLE": "AAPL",
+    "MICROSOFT": "MSFT",
     "NVIDIA": "NVDA"
 }
-
 
 # ============================================================
 # 2. OBTENER PRECIOS HISTÓRICOS
 # ============================================================
 
-def obtener_precios(activos, periodo="5y", intervalo="1mo"):
+def obtener_precios(tickers, period="5y", interval="1mo"):
     """
     Obtiene los precios históricos de los activos.
     """
 
-    precios = yf.download(
-        list(activos.values()),
-        period=periodo,
-        interval=intervalo,
+    prices = yf.download(
+        list(tickers.values()),
+        period=period,
+        interval=interval,
         auto_adjust=True
     )["Close"]
 
-    # Reemplazamos los identificadores de Yahoo
-    # por los nombres utilizados en nuestro modelo
-    precios.columns = activos.keys()
+    # Reemplazamos los tickers de Yahoo por los nombres
+    # que utilizamos en nuestro modelo
+    prices.columns = tickers.keys()
 
-    return precios
+    return prices
 
 
 def calcular_rendimientos(precios):
@@ -51,20 +50,19 @@ def calcular_rendimientos(precios):
 # 3. PARÁMETROS DEL MODELO
 # ============================================================
 
-TAMANO_CARTERA = 5
-TAMANO_POBLACION = 100
-CANTIDAD_GENERACIONES = 500
+TAM_CARTERA = 5
+TAM_POBLACION = 100
+GENERACIONES = 1000
 
-PROBABILIDAD_MUTACION = 0.05
-DESVIO_ESTANDAR_MUTACION = 0.05
+PROB_MUTACION = 0.05
+DESVIACION_MUTACION = 0.05
 
-PROBABILIDAD_CRUCE = 0.8
+PROB_CROSSOVER = 0.8
 
-LAMBDA = 10
+LAMBDA = 1 # Coeficiente de aversión al riesgo
 
-# Tasa libre de riesgo, necesaria si utilizamos
-# el índice de Sharpe
-TASA_LIBRE_RIESGO = 0.0
+# Tasa libre de riesgo, necesaria si usamos Sharpe
+RISK_FREE_RATE = 0.0
 
 
 # ============================================================
@@ -75,11 +73,11 @@ def generar_cartera():
     """
     Genera un individuo.
 
-    Cada gen representa la proporción del capital
-    invertida en un activo.
+    Cada gen representa el porcentaje invertido
+    en un activo.
     """
 
-    proporciones = np.random.random(TAMANO_CARTERA)
+    proporciones = np.random.random(TAM_CARTERA)
 
     # Normalizamos para que la suma sea 1
     proporciones /= np.sum(proporciones)
@@ -95,7 +93,7 @@ def generar_poblacion():
 
     return np.array([
         generar_cartera()
-        for _ in range(TAMANO_POBLACION)
+        for _ in range(TAM_POBLACION)
     ])
 
 
@@ -103,110 +101,94 @@ def generar_poblacion():
 # 7. RENDIMIENTO DE LA CARTERA
 # ============================================================
 
-def calcular_rendimiento_cartera(proporciones):
+def retorno_cartera(proporciones):
 
-    return np.dot(
-        proporciones,
-        rendimiento_esperado
-    )
+    return np.dot(proporciones, mu)
 
 
 # ============================================================
 # 8. RIESGO DE LA CARTERA
 # ============================================================
 
-def calcular_riesgo_cartera(proporciones):
+def riesgo_cartera(proporciones):
 
-    varianza = (
-        proporciones.T
-        @ matriz_covarianzas
-        @ proporciones
-    )
+    varianza = proporciones.T @ cov_matrix @ proporciones
 
     return np.sqrt(varianza)
 
 
 # ============================================================
-# 9. EVALUACIÓN DE LA CARTERA
+# 9. FITNESS
 # ============================================================
 
-def evaluar_cartera(proporciones):
+def fitness(proporciones):
 
-    rendimiento = calcular_rendimiento_cartera(
-        proporciones
-    )
+    expected_return = retorno_cartera(proporciones)
 
-    riesgo = calcular_riesgo_cartera(
-        proporciones
-    )
+    riesgo = riesgo_cartera(proporciones)
 
-    return rendimiento - LAMBDA * riesgo
+    return expected_return - LAMBDA * riesgo
 
 
 # ============================================================
 # 10. SELECCIÓN
 # ============================================================
 
-def seleccionar(poblacion):
+def seleccion_truncamiento(poblacion):
 
-    valores_evaluacion = np.array([
-        evaluar_cartera(individuo)
-        for individuo in poblacion
+    fitness_values = np.array([
+        fitness(individual)
+        for individual in poblacion
     ])
 
     # Ordenamos de mejor a peor
-    indices = np.argsort(
-        valores_evaluacion
-    )[::-1]
+    indexes = np.argsort(fitness_values)[::-1]
 
     # Seleccionamos la mitad superior
-    seleccionados = poblacion[
-        indices[:TAMANO_POBLACION // 2]
+    selected = poblacion[
+        indexes[:TAM_POBLACION // 2]
     ]
 
-    return seleccionados
+    return selected
 
 
 # ============================================================
 # 11. CRUCE
 # ============================================================
 
-def cruzar(progenitor1, progenitor2):
+def crossover(p1, p2):
 
-    if np.random.random() > PROBABILIDAD_CRUCE:
+    if np.random.random() > PROB_CROSSOVER:
 
-        return progenitor1.copy()
+        return p1.copy()
 
-    proporcion = np.random.random()
+    alpha = np.random.random()
 
-    descendiente = (
-        proporcion * progenitor1
-        + (1 - proporcion) * progenitor2
+    child = (
+        alpha * p1
+        + (1 - alpha) * p2
     )
 
-    # Nos aseguramos de que las proporciones sumen 1
-    descendiente /= np.sum(descendiente)
+    # Nos aseguramos de que los pesos sumen 1
+    child /= np.sum(child)
 
-    return descendiente
+    return child
 
 
 # ============================================================
 # 12. MUTACIÓN
 # ============================================================
 
-def mutar(individuo):
+def mutacion(individuo):
 
-    for i in range(TAMANO_CARTERA):
+    for i in range(TAM_CARTERA):
 
-        if np.random.random() < PROBABILIDAD_MUTACION:
+        if np.random.random() < PROB_MUTACION:
 
-            # Pequeña modificación de la proporción
-            individuo[i] += np.random.normal(
-                0,
-                DESVIO_ESTANDAR_MUTACION
-            )
+            # Pequeña modificación del peso
+            individuo[i] += np.random.normal(0, DESVIACION_MUTACION)
 
-    # Evitamos proporciones negativas
+    # Evitamos pesos negativos
     individuo = np.maximum(individuo, 0)
 
     # Volvemos a normalizar
@@ -221,36 +203,28 @@ def mutar(individuo):
 # 13. CREAR NUEVA POBLACIÓN
 # ============================================================
 
-def crear_nueva_poblacion(seleccionados):
+def crear_nueva_poblacion(poblacion_selec):
 
     nueva_poblacion = []
 
-    while len(nueva_poblacion) < TAMANO_POBLACION:
+    while len(nueva_poblacion) < TAM_POBLACION:
 
-        progenitor1 = seleccionados[
-            np.random.randint(
-                len(seleccionados)
-            )
+        parent1 = poblacion_selec[
+            np.random.randint(len(poblacion_selec))
         ]
 
-        progenitor2 = seleccionados[
-            np.random.randint(
-                len(seleccionados)
-            )
+        parent2 = poblacion_selec[
+            np.random.randint(len(poblacion_selec))
         ]
 
-        descendiente = cruzar(
-            progenitor1,
-            progenitor2
+        child = crossover(
+            parent1,
+            parent2
         )
 
-        descendiente = mutar(
-            descendiente
-        )
+        child = mutacion(child)
 
-        nueva_poblacion.append(
-            descendiente
-        )
+        nueva_poblacion.append(child)
 
     return np.array(nueva_poblacion)
 
@@ -259,81 +233,82 @@ def crear_nueva_poblacion(seleccionados):
 # 14. ALGORITMO GENÉTICO
 # ============================================================
 
-def ejecutar_algoritmo_genetico():
+def algoritmo_genetico():
 
     poblacion = generar_poblacion()
 
-    mejor_cartera = None
-    mejor_evaluacion = -np.inf
+    mejor_cromosoma = None
+    mejor_fitness = -np.inf
 
-    for generacion in range(
-        CANTIDAD_GENERACIONES
-    ):
+    for generacion in range(GENERACIONES):
 
         # Evaluamos la población
-        valores_evaluacion = np.array([
-            evaluar_cartera(individuo)
-            for individuo in poblacion
+        valores_fitness = np.array([
+            fitness(individual)
+            for individual in poblacion
         ])
 
         # Mejor individuo de esta generación
-        mejor_indice = np.argmax(
-            valores_evaluacion
-        )
+        mejor_indice = np.argmax(valores_fitness)
 
-        mejor_actual = poblacion[
-            mejor_indice
-        ]
+        mejor_actual = poblacion[mejor_indice]
 
-        evaluacion_actual = valores_evaluacion[
-            mejor_indice
-        ]
+        fitness_actual = valores_fitness[mejor_indice]
 
-        # Guardamos la mejor cartera encontrada
-        if evaluacion_actual > mejor_evaluacion:
+        # Guardamos el mejor global
+        if fitness_actual > mejor_fitness:
 
-            mejor_evaluacion = evaluacion_actual
+            mejor_fitness = fitness_actual
 
-            mejor_cartera = mejor_actual.copy()
+            mejor_cromosoma = mejor_actual.copy()
 
-        # Selección
-        seleccionados = seleccionar(
-            poblacion
-        )
+        # TODO: Implementar elitismo 
+        # TODO: Implementar mas estrategias de selección
+        
+        selected = seleccion_truncamiento(poblacion)
 
-        # Cruce y mutación
-        poblacion = crear_nueva_poblacion(
-            seleccionados
-        )
+        # Cruce + mutación
+        poblacion = crear_nueva_poblacion(selected)
 
         print(
             f"Generación {generacion + 1}: "
-            f"Evaluación = {evaluacion_actual:.6f}"
+            f"Fitness = {fitness_actual:.6f}"
         )
 
-    return mejor_cartera, mejor_evaluacion
+    return mejor_cromosoma, mejor_fitness
 
+
+def graficar_cartera(mejor_cartera):
+
+    plt.figure(figsize=(8, 8))
+
+    plt.pie(
+        mejor_cartera,
+        labels=retornos.columns,
+        autopct="%1.1f%%",
+        startangle=90
+    )
+
+    plt.title("Distribución de la cartera óptima")
+    plt.show()
 
 # ============================================================
 # 15. EJECUCIÓN
 # ============================================================
 
 # Obtenemos los precios
-precios = obtener_precios(activos)
+precios = obtener_precios(tickers)
 
 # Calculamos los rendimientos
-rendimientos = calcular_rendimientos(precios)
+retornos = calcular_rendimientos(precios)
 
 # Rendimiento esperado de cada activo
-rendimiento_esperado = rendimientos.mean().values
+mu = retornos.mean().values
 
 # Matriz de covarianzas
-matriz_covarianzas = rendimientos.cov().values
+cov_matrix = retornos.cov().values
 
-mejor_cartera, mejor_evaluacion = (
-    ejecutar_algoritmo_genetico()
-)
-
+mejor_cartera, mejor_fitness = algoritmo_genetico()
 
 # ============================================================
 # 16. RESULTADOS
@@ -341,25 +316,47 @@ mejor_cartera, mejor_evaluacion = (
 
 print("\n--- MEJOR CARTERA ---")
 
-for activo, proporcion in zip(
-    rendimientos.columns,
+for asset, weight in zip(
+    retornos.columns,
     mejor_cartera
 ):
+
     print(
-        f"{activo}: {proporcion * 100:.2f}%"
+        f"{asset}: {weight:.2%}"
     )
 
+
 print(
-    f"\nRendimiento esperado: "
-    f"{calcular_rendimiento_cartera(mejor_cartera) * 100:.2f}%"
+    "\nRendimiento esperado:",
+    retorno_cartera(mejor_cartera)
 )
 
 print(
-    f"Riesgo: "
-    f"{calcular_riesgo_cartera(mejor_cartera) * 100:.2f}%"
+    "Riesgo:",
+    riesgo_cartera(mejor_cartera)
 )
 
 print(
-    f"Evaluación: "
-    f"{mejor_evaluacion:.6f}"
+    "Fitness:",
+    mejor_fitness
 )
+
+
+print("\n--- DATOS OBTENIDOS ---")
+print(retornos)
+
+# Resultados mensuales
+rendimiento_mensual = retorno_cartera(mejor_cartera)
+riesgo_mensual = riesgo_cartera(mejor_cartera)
+
+# Anualización
+rendimiento_anual = (1 + rendimiento_mensual)**12 - 1
+riesgo_anual = riesgo_mensual * np.sqrt(12)
+
+graficar_cartera(mejor_cartera)
+
+print("Rendimiento esperado mensual:", np.round(rendimiento_mensual * 100, 2))
+print("Riesgo mensual:", np.round(riesgo_mensual * 100, 2))
+
+print("Rendimiento esperado anual:", np.round(rendimiento_anual * 100, 2))
+print("Riesgo anual:", np.round(riesgo_anual * 100, 2))
