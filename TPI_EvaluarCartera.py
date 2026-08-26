@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import yfinance as yf
 
+
 # ============================================================
 # 1. ACTIVOS
 # ============================================================
@@ -14,6 +15,7 @@ tickers = {
     "MICROSOFT": "MSFT",
     "NVIDIA": "NVDA"
 }
+
 
 # ============================================================
 # 2. OBTENER PRECIOS HISTÓRICOS
@@ -32,7 +34,7 @@ def obtener_precios(tickers, period="5y", interval="1mo"):
     )["Close"]
 
     # Reemplazamos los tickers de Yahoo por los nombres
-    # que utilizamos en nuestro modelo
+    # utilizados en nuestro modelo.
     prices.columns = tickers.keys()
 
     return prices
@@ -46,27 +48,30 @@ def calcular_rendimientos(precios):
 
     return precios.pct_change().dropna()
 
+
 # ============================================================
 # 3. PARÁMETROS DEL MODELO
 # ============================================================
 
 TAM_CARTERA = 5
 TAM_POBLACION = 100
-GENERACIONES = 1000
+GENERACIONES = 100
 
 PROB_MUTACION = 0.05
 DESVIACION_MUTACION = 0.05
 
 PROB_CROSSOVER = 0.8
 
-LAMBDA = 1 # Coeficiente de aversión al riesgo
+# Coeficiente de aversión al riesgo
+LAMBDA = 0.5
 
-# Tasa libre de riesgo, necesaria si usamos Sharpe
+# Tasa libre de riesgo mensual
+# Se utiliza para el cálculo del Índice de Sharpe.
 RISK_FREE_RATE = 0.0
 
 
 # ============================================================
-# 5. GENERAR UNA CARTERA
+# 4. GENERAR UNA CARTERA
 # ============================================================
 
 def generar_cartera():
@@ -79,14 +84,14 @@ def generar_cartera():
 
     proporciones = np.random.random(TAM_CARTERA)
 
-    # Normalizamos para que la suma sea 1
+    # Normalizamos para que la suma sea 1.
     proporciones /= np.sum(proporciones)
 
     return proporciones
 
 
 # ============================================================
-# 6. GENERAR POBLACIÓN
+# 5. GENERAR POBLACIÓN
 # ============================================================
 
 def generar_poblacion():
@@ -98,7 +103,7 @@ def generar_poblacion():
 
 
 # ============================================================
-# 7. RENDIMIENTO DE LA CARTERA
+# 6. RENDIMIENTO DE LA CARTERA
 # ============================================================
 
 def retorno_cartera(proporciones):
@@ -107,7 +112,7 @@ def retorno_cartera(proporciones):
 
 
 # ============================================================
-# 8. RIESGO DE LA CARTERA
+# 7. RIESGO DE LA CARTERA
 # ============================================================
 
 def riesgo_cartera(proporciones):
@@ -118,10 +123,10 @@ def riesgo_cartera(proporciones):
 
 
 # ============================================================
-# 9. FITNESS
+# 8. FITNESS - LAMBDA
 # ============================================================
 
-def fitness(proporciones):
+def fitness_lambda(proporciones):
 
     expected_return = retorno_cartera(proporciones)
 
@@ -131,20 +136,39 @@ def fitness(proporciones):
 
 
 # ============================================================
+# 9. FITNESS - ÍNDICE DE SHARPE
+# ============================================================
+
+def fitness_sharpe(proporciones):
+
+    expected_return = retorno_cartera(proporciones)
+
+    riesgo = riesgo_cartera(proporciones)
+
+    # Evitamos división por cero.
+    if riesgo == 0:
+        return 0
+
+    return (
+        expected_return - RISK_FREE_RATE
+    ) / riesgo
+
+
+# ============================================================
 # 10. SELECCIÓN
 # ============================================================
 
-def seleccion_truncamiento(poblacion):
+def seleccion_truncamiento(poblacion, fitness_function):
 
     fitness_values = np.array([
-        fitness(individual)
+        fitness_function(individual)
         for individual in poblacion
     ])
 
-    # Ordenamos de mejor a peor
+    # Ordenamos de mejor a peor.
     indexes = np.argsort(fitness_values)[::-1]
 
-    # Seleccionamos la mitad superior
+    # Seleccionamos la mitad superior.
     selected = poblacion[
         indexes[:TAM_POBLACION // 2]
     ]
@@ -164,15 +188,15 @@ def crossover(p1, p2):
 
     alpha = np.random.random()
 
-    child = (
+    hijo = (
         alpha * p1
         + (1 - alpha) * p2
     )
 
-    # Nos aseguramos de que los pesos sumen 1
-    child /= np.sum(child)
+    # Nos aseguramos de que los pesos sumen 1.
+    hijo /= np.sum(hijo)
 
-    return child
+    return hijo
 
 
 # ============================================================
@@ -181,20 +205,31 @@ def crossover(p1, p2):
 
 def mutacion(individuo):
 
+    # Copiamos para no modificar directamente
+    # al individuo de la población original.
+    individuo = individuo.copy()
+
     for i in range(TAM_CARTERA):
 
         if np.random.random() < PROB_MUTACION:
 
-            # Pequeña modificación del peso
-            individuo[i] += np.random.normal(0, DESVIACION_MUTACION)
+            # Pequeña modificación del peso.
+            individuo[i] += np.random.normal(
+                0,
+                DESVIACION_MUTACION
+            )
 
-    # Evitamos pesos negativos
+    # Evitamos pesos negativos.
     individuo = np.maximum(individuo, 0)
 
-    # Volvemos a normalizar
+    # Volvemos a normalizar.
     if np.sum(individuo) > 0:
 
         individuo /= np.sum(individuo)
+
+    else:
+
+        individuo = generar_cartera()
 
     return individuo
 
@@ -233,52 +268,145 @@ def crear_nueva_poblacion(poblacion_selec):
 # 14. ALGORITMO GENÉTICO
 # ============================================================
 
-def algoritmo_genetico():
+def algoritmo_genetico(
+    fitness_function,
+    poblacion_inicial=None
+):
+    """
+    Ejecuta el algoritmo genético utilizando
+    la función de fitness indicada.
 
-    poblacion = generar_poblacion()
+    Si se proporciona una población inicial,
+    se utiliza una copia de ella.
+    """
 
-    mejor_cromosoma = None
-    mejor_fitness = -np.inf
+    if poblacion_inicial is None:
 
-    for generacion in range(GENERACIONES):
+        population = generar_poblacion()
 
-        # Evaluamos la población
-        valores_fitness = np.array([
-            fitness(individual)
-            for individual in poblacion
+    else:
+
+        population = poblacion_inicial.copy()
+
+    best_individual = None
+    best_fitness = -np.inf
+
+    for generation in range(GENERACIONES):
+
+        # Evaluamos la población.
+        fitness_values = np.array([
+            fitness_function(individual)
+            for individual in population
         ])
 
-        # Mejor individuo de esta generación
-        mejor_indice = np.argmax(valores_fitness)
+        # Mejor individuo de la generación.
+        best_index = np.argmax(fitness_values)
 
-        mejor_actual = poblacion[mejor_indice]
+        current_best = population[best_index]
 
-        fitness_actual = valores_fitness[mejor_indice]
+        current_fitness = fitness_values[best_index]
 
-        # Guardamos el mejor global
-        if fitness_actual > mejor_fitness:
+        # Guardamos el mejor individuo global.
+        if current_fitness > best_fitness:
 
-            mejor_fitness = fitness_actual
+            best_fitness = current_fitness
 
-            mejor_cromosoma = mejor_actual.copy()
+            best_individual = current_best.copy()
 
-        # TODO: Implementar elitismo 
-        # TODO: Implementar mas estrategias de selección
-        
-        selected = seleccion_truncamiento(poblacion)
-
-        # Cruce + mutación
-        poblacion = crear_nueva_poblacion(selected)
-
-        print(
-            f"Generación {generacion + 1}: "
-            f"Fitness = {fitness_actual:.6f}"
+        # Selección.
+        selected = seleccion_truncamiento(
+            population,
+            fitness_function
         )
 
-    return mejor_cromosoma, mejor_fitness
+        # Cruce + mutación.
+        population = crear_nueva_poblacion(
+            selected
+        )
+
+        print(
+            f"Generación {generation + 1}: "
+            f"Fitness = {current_fitness:.6f}"
+        )
+
+    return best_individual, best_fitness
 
 
-def graficar_cartera(mejor_cartera):
+# ============================================================
+# 15. MOSTRAR RESULTADOS
+# ============================================================
+
+def mostrar_resultados(
+    titulo,
+    portfolio,
+    fitness_value
+):
+
+    expected_return = retorno_cartera(portfolio)
+
+    risk = riesgo_cartera(portfolio)
+
+    sharpe = fitness_sharpe(portfolio)
+
+    print("\n" + "=" * 60)
+    print(titulo)
+    print("=" * 60)
+
+    print("\nDistribución de la cartera:")
+
+    for asset, weight in zip(
+        retornos.columns,
+        portfolio
+    ):
+
+        print(
+            f"{asset:<20}: {weight:>8.2%}"
+        )
+
+    print("\nRendimiento esperado:")
+    print(f"{expected_return:.6f}")
+
+    print("\nRiesgo:")
+    print(f"{risk:.6f}")
+
+    print("\nÍndice de Sharpe:")
+    print(f"{sharpe:.6f}")
+
+    print("\nFitness:")
+    print(f"{fitness_value:.6f}")
+
+
+# ============================================================
+# 16. GRAFICAR CARTERA
+# ============================================================
+
+def graficar_cartera(
+    mejor_cartera,
+    titulo="Distribución de la cartera óptima"
+):
+
+    rendimiento_mensual = retorno_cartera(
+        mejor_cartera
+    )
+
+    riesgo_mensual = riesgo_cartera(
+        mejor_cartera
+    )
+
+    # Tasa anual simple.
+    rendimiento_anual_tda = (
+        rendimiento_mensual * 12
+    )
+
+    # Tasa efectiva anual.
+    rendimiento_anual_tea = (
+        (1 + rendimiento_mensual) ** 12 - 1
+    )
+
+    # Anualización de la volatilidad.
+    riesgo_anual = (
+        riesgo_mensual * np.sqrt(12)
+    )
 
     plt.figure(figsize=(8, 8))
 
@@ -289,74 +417,337 @@ def graficar_cartera(mejor_cartera):
         startangle=90
     )
 
-    plt.title("Distribución de la cartera óptima")
+    plt.title(titulo)
+
+    descripcion = (
+        f"Rendimiento esperado mensual: "
+        f"{rendimiento_mensual * 100:.2f}%\n"
+        f"Riesgo mensual: "
+        f"{riesgo_mensual * 100:.2f}%\n\n"
+        f"Rendimiento esperado anual (TDA): "
+        f"{rendimiento_anual_tda * 100:.2f}%\n"
+        f"Rendimiento esperado anual (TEA): "
+        f"{rendimiento_anual_tea * 100:.2f}%\n"
+        f"Riesgo anual: "
+        f"{riesgo_anual * 100:.2f}%"
+    )
+
+    plt.figtext(
+        0.5,
+        0.02,
+        descripcion,
+        ha="center",
+        fontsize=11
+    )
+
+    plt.tight_layout(
+        rect=[0, 0.08, 1, 1]
+    )
+
     plt.show()
 
-# ============================================================
-# 15. EJECUCIÓN
-# ============================================================
-
-# Obtenemos los precios
-precios = obtener_precios(tickers)
-
-# Calculamos los rendimientos
-retornos = calcular_rendimientos(precios)
-
-# Rendimiento esperado de cada activo
-mu = retornos.mean().values
-
-# Matriz de covarianzas
-cov_matrix = retornos.cov().values
-
-mejor_cartera, mejor_fitness = algoritmo_genetico()
 
 # ============================================================
-# 16. RESULTADOS
+# 17. COMPARAR MÉTODOS
 # ============================================================
 
-print("\n--- MEJOR CARTERA ---")
+def comparar_metodos():
 
-for asset, weight in zip(
-    retornos.columns,
-    mejor_cartera
-):
+    print("\n")
+    print("=" * 60)
+    print("              COMPARACIÓN DE MÉTODOS")
+    print("=" * 60)
+
+    # --------------------------------------------------------
+    # Misma población inicial para ambos métodos.
+    # --------------------------------------------------------
+
+    poblacion_inicial = generar_poblacion()
+
+    # --------------------------------------------------------
+    # FITNESS LAMBDA
+    # --------------------------------------------------------
+
+    print("\nEjecutando Fitness Lambda...\n")
+
+    portfolio_lambda, fitness_lambda_value = (
+        algoritmo_genetico(
+            fitness_lambda,
+            poblacion_inicial
+        )
+    )
+
+    # --------------------------------------------------------
+    # FITNESS SHARPE
+    # --------------------------------------------------------
+
+    print("\nEjecutando Índice de Sharpe...\n")
+
+    portfolio_sharpe, fitness_sharpe_value = (
+        algoritmo_genetico(
+            fitness_sharpe,
+            poblacion_inicial
+        )
+    )
+
+    # --------------------------------------------------------
+    # RESULTADOS INDIVIDUALES
+    # --------------------------------------------------------
+
+    mostrar_resultados(
+        "RESULTADO - FITNESS LAMBDA",
+        portfolio_lambda,
+        fitness_lambda_value
+    )
+
+    mostrar_resultados(
+        "RESULTADO - ÍNDICE DE SHARPE",
+        portfolio_sharpe,
+        fitness_sharpe_value
+    )
+
+    # --------------------------------------------------------
+    # MÉTRICAS COMPARABLES
+    # --------------------------------------------------------
+
+    return_lambda = retorno_cartera(
+        portfolio_lambda
+    )
+
+    risk_lambda = riesgo_cartera(
+        portfolio_lambda
+    )
+
+    sharpe_lambda = fitness_sharpe(
+        portfolio_lambda
+    )
+
+    return_sharpe = retorno_cartera(
+        portfolio_sharpe
+    )
+
+    risk_sharpe = riesgo_cartera(
+        portfolio_sharpe
+    )
+
+    sharpe_sharpe = fitness_sharpe(
+        portfolio_sharpe
+    )
+
+    # --------------------------------------------------------
+    # TABLA COMPARATIVA
+    # --------------------------------------------------------
+
+    print("\n")
+    print("=" * 70)
+    print("                         COMPARACIÓN")
+    print("=" * 70)
 
     print(
-        f"{asset}: {weight:.2%}"
+        f"{'Métrica':<30}"
+        f"{'Lambda':>18}"
+        f"{'Sharpe':>18}"
+    )
+
+    print("-" * 70)
+
+    print(
+        f"{'Rendimiento esperado':<30}"
+        f"{return_lambda:>18.6f}"
+        f"{return_sharpe:>18.6f}"
+    )
+
+    print(
+        f"{'Riesgo':<30}"
+        f"{risk_lambda:>18.6f}"
+        f"{risk_sharpe:>18.6f}"
+    )
+
+    print(
+        f"{'Índice de Sharpe':<30}"
+        f"{sharpe_lambda:>18.6f}"
+        f"{sharpe_sharpe:>18.6f}"
+    )
+
+    print("=" * 70)
+
+    # --------------------------------------------------------
+    # PESOS
+    # --------------------------------------------------------
+
+    print("\n")
+    print("=" * 70)
+    print("                    DISTRIBUCIÓN DE CARTERAS")
+    print("=" * 70)
+
+    print(
+        f"{'Activo':<20}"
+        f"{'Lambda':>20}"
+        f"{'Sharpe':>20}"
+    )
+
+    print("-" * 70)
+
+    for asset, weight_lambda, weight_sharpe in zip(
+        retornos.columns,
+        portfolio_lambda,
+        portfolio_sharpe
+    ):
+
+        print(
+            f"{asset:<20}"
+            f"{weight_lambda:>19.2%}"
+            f"{weight_sharpe:>20.2%}"
+        )
+
+    print("=" * 70)
+
+    # --------------------------------------------------------
+    # GRÁFICOS
+    # --------------------------------------------------------
+
+    graficar_cartera(
+        portfolio_lambda,
+        "Cartera óptima - Fitness Lambda"
+    )
+
+    graficar_cartera(
+        portfolio_sharpe,
+        "Cartera óptima - Índice de Sharpe"
     )
 
 
-print(
-    "\nRendimiento esperado:",
-    retorno_cartera(mejor_cartera)
-)
+# ============================================================
+# 18. MENÚ PRINCIPAL
+# ============================================================
 
-print(
-    "Riesgo:",
-    riesgo_cartera(mejor_cartera)
-)
+def menu():
 
-print(
-    "Fitness:",
-    mejor_fitness
-)
+    while True:
+
+        print("\n")
+        print("=" * 60)
+        print("             OPTIMIZACIÓN DE CARTERAS")
+        print("=" * 60)
+
+        print()
+        print("1. Ejecutar con Fitness Lambda")
+        print("2. Ejecutar con Índice de Sharpe")
+        print("3. Comparar ambos métodos")
+        print("0. Salir")
+
+        print()
+        print("=" * 60)
+
+        option = input(
+            "Seleccione una opción: "
+        )
+
+        # ----------------------------------------------------
+        # OPCIÓN 1 - LAMBDA
+        # ----------------------------------------------------
+
+        if option == "1":
+
+            print(
+                "\nEjecutando algoritmo "
+                "con Fitness Lambda...\n"
+            )
+
+            best_portfolio, best_fitness = (
+                algoritmo_genetico(
+                    fitness_lambda
+                )
+            )
+
+            mostrar_resultados(
+                "RESULTADO - FITNESS LAMBDA",
+                best_portfolio,
+                best_fitness
+            )
+
+            graficar_cartera(
+                best_portfolio,
+                "Cartera óptima - Fitness Lambda"
+            )
+
+        # ----------------------------------------------------
+        # OPCIÓN 2 - SHARPE
+        # ----------------------------------------------------
+
+        elif option == "2":
+
+            print(
+                "\nEjecutando algoritmo "
+                "con Índice de Sharpe...\n"
+            )
+
+            best_portfolio, best_fitness = (
+                algoritmo_genetico(
+                    fitness_sharpe
+                )
+            )
+
+            mostrar_resultados(
+                "RESULTADO - ÍNDICE DE SHARPE",
+                best_portfolio,
+                best_fitness
+            )
+
+            graficar_cartera(
+                best_portfolio,
+                "Cartera óptima - Índice de Sharpe"
+            )
+
+        # ----------------------------------------------------
+        # OPCIÓN 3 - COMPARACIÓN
+        # ----------------------------------------------------
+
+        elif option == "3":
+
+            comparar_metodos()
+
+        # ----------------------------------------------------
+        # OPCIÓN 0 - SALIR
+        # ----------------------------------------------------
+
+        elif option == "0":
+
+            print("\nPrograma finalizado.")
+
+            break
+
+        else:
+
+            print(
+                "\nOpción inválida. "
+                "Intente nuevamente."
+            )
 
 
-print("\n--- DATOS OBTENIDOS ---")
+# ============================================================
+# 19. OBTENER DATOS Y EJECUTAR
+# ============================================================
+
+print("\nObteniendo datos históricos...")
+
+precios = obtener_precios(tickers)
+
+retornos = calcular_rendimientos(precios)
+
+# Rendimiento esperado de cada activo.
+mu = retornos.mean().values
+
+# Matriz de covarianzas.
+cov_matrix = retornos.cov().values
+
+print("\nDatos obtenidos correctamente.")
+
+print("\n--- RENDIMIENTOS HISTÓRICOS ---")
 print(retornos)
 
-# Resultados mensuales
-rendimiento_mensual = retorno_cartera(mejor_cartera)
-riesgo_mensual = riesgo_cartera(mejor_cartera)
+# ============================================================
+# 20. INICIAR MENÚ
+# ============================================================
 
-# Anualización
-rendimiento_anual = (1 + rendimiento_mensual)**12 - 1
-riesgo_anual = riesgo_mensual * np.sqrt(12)
-
-graficar_cartera(mejor_cartera)
-
-print("Rendimiento esperado mensual:", np.round(rendimiento_mensual * 100, 2))
-print("Riesgo mensual:", np.round(riesgo_mensual * 100, 2))
-
-print("Rendimiento esperado anual:", np.round(rendimiento_anual * 100, 2))
-print("Riesgo anual:", np.round(riesgo_anual * 100, 2))
+menu()
