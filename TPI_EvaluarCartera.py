@@ -15,12 +15,10 @@ tickers = {
     "GOLD": "GLD",
     "YPF": "YPF",
     "COCA-COLA": "KO",
-    "MICROSOFT": "MSFT",
-    "COPPER": "CPER",
+    "QQQ": "QQQ",
     "MERCADO LIBRE": "MELI",
     "NVIDIA": "NVDA",
 }
-
 
 # ============================================================
 # 2. OBTENER PRECIOS HISTÓRICOS
@@ -73,7 +71,7 @@ DESVIACION_MUTACION = 0.05
 PROB_CROSSOVER = 0.8
 
 # Coeficiente de aversión al riesgo.
-LAMBDA = 0.5
+LAMBDA = 3
 
 # Tasa libre de riesgo mensual.
 RISK_FREE_RATE = 0.0
@@ -810,23 +808,9 @@ def graficar_evolucion(
     fitness_function,
     titulo
 ):
-    """
-    Genera una animación donde cada punto representa
-    una cartera de la población.
 
-    Eje X:
-        Volatilidad / riesgo.
-
-    Eje Y:
-        Rendimiento esperado.
-
-    Cada frame representa una generación.
-    """
-
-    historial_xy = (
-        convertir_historial_xy(
-            historial_poblaciones
-        )
+    historial_xy = convertir_historial_xy(
+        historial_poblaciones
     )
 
     fig, ax = plt.subplots(
@@ -850,6 +834,54 @@ def graficar_evolucion(
         alpha=0.3
     )
 
+    # ========================================================
+    # FIJAR RANGO DE LOS EJES
+    # ========================================================
+
+    todos_los_puntos = np.vstack(
+        historial_xy
+    )
+
+    x_min = np.min(
+        todos_los_puntos[:, 0]
+    )
+
+    x_max = np.max(
+        todos_los_puntos[:, 0]
+    )
+
+    y_min = np.min(
+        todos_los_puntos[:, 1]
+    )
+
+    y_max = np.max(
+        todos_los_puntos[:, 1]
+    )
+
+    margen_x = (
+        (x_max - x_min) * 0.10
+    )
+
+    margen_y = (
+        (y_max - y_min) * 0.10
+    )
+
+    if margen_x == 0:
+        margen_x = 1
+
+    if margen_y == 0:
+        margen_y = 1
+
+    ax.set_xlim(
+        x_min - margen_x,
+        x_max + margen_x
+    )
+
+    ax.set_ylim(
+        y_min - margen_y,
+        y_max + margen_y
+    )
+
     # --------------------------------------------------------
     # Población inicial.
     # --------------------------------------------------------
@@ -869,7 +901,7 @@ def graficar_evolucion(
     mejor_scatter = ax.scatter(
         [],
         [],
-        s=180,
+        s=120,
         marker="*",
         label="Mejor individuo"
     )
@@ -939,15 +971,11 @@ def graficar_evolucion(
             ) * 100
         ]
 
-        mejor_scatter = ax.scatter(
-            [mejor_punto[0]],
-            [mejor_punto[1]],
-            s=180,
-            marker="*",
-            label="Mejor individuo",
-            zorder=10
-        )
-
+        if generacion == len(historial_poblaciones) - 1:
+            mejor_scatter.set_offsets([mejor_punto])
+            mejor_scatter.set_visible(True)
+        else:
+            mejor_scatter.set_visible(False)
 
         texto.set_text(
             f"Generación: "
@@ -972,7 +1000,7 @@ def graficar_evolucion(
             historial_poblaciones
         ),
         interval=150,
-        repeat=True
+        repeat=False
     )
 
     plt.show()
