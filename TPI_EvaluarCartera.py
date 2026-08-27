@@ -6,6 +6,7 @@ import yfinance as yf
 from scipy.optimize import minimize
 from matplotlib.animation import FuncAnimation
 
+
 # ============================================================
 # 1. ACTIVOS
 # ============================================================
@@ -71,11 +72,7 @@ DESVIACION_MUTACION = 0.05
 PROB_CROSSOVER = 0.8
 
 # Coeficiente de aversión al riesgo.
-<<<<<<< HEAD
 LAMBDA = 0.5 
-=======
-LAMBDA = 3
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
 
 # Tasa libre de riesgo mensual.
 RISK_FREE_RATE = 0.0
@@ -739,11 +736,7 @@ def graficar_cartera(
         0.5,
         0.02,
         descripcion,
-<<<<<<< HEAD
         ha="left",
-=======
-        ha="center",
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
         fontsize=11
     )
 
@@ -757,7 +750,6 @@ def graficar_cartera(
     )
 
     plt.show()
-<<<<<<< HEAD
 
 # ============================================================
 # 19. PREPARAR DATOS PARA EL GRÁFICO DE EVOLUCIÓN
@@ -774,24 +766,6 @@ def convertir_historial_xy(
 
     historial_xy = []
 
-=======
-
-
-# ============================================================
-# 18. PREPARAR DATOS PARA EL GRÁFICO DE EVOLUCIÓN
-# ============================================================
-
-def convertir_historial_xy(
-    historial_poblaciones
-):
-    """
-    Convierte cada población del historial a puntos
-    (riesgo, rendimiento).
-    """
-
-    historial_xy = []
-
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
     for poblacion in (
         historial_poblaciones
     ):
@@ -827,11 +801,7 @@ def convertir_historial_xy(
 
 
 # ============================================================
-<<<<<<< HEAD
 # 20. GRAFICAR EVOLUCIÓN DE LAS GENERACIONES
-=======
-# 19. GRAFICAR EVOLUCIÓN DE LAS GENERACIONES
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
 # ============================================================
 
 def graficar_evolucion(
@@ -839,26 +809,20 @@ def graficar_evolucion(
     fitness_function,
     titulo
 ):
-<<<<<<< HEAD
     """
     Animación de la evolución del algoritmo genético
     superpuesta sobre la frontera eficiente de Markowitz.
     """
-=======
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
 
     historial_xy = convertir_historial_xy(
         historial_poblaciones
     )
 
-<<<<<<< HEAD
     # --------------------------------------------------------
     # Calculamos la frontera una sola vez.
     # Lambda NO interviene en este cálculo.
     # --------------------------------------------------------
 
-=======
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
     fig, ax = plt.subplots(
         figsize=(9, 7)
     )
@@ -881,18 +845,13 @@ def graficar_evolucion(
     )
 
     # ========================================================
-<<<<<<< HEAD
     # RANGO DE LOS EJES
-=======
-    # FIJAR RANGO DE LOS EJES
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
     # ========================================================
 
     todos_los_puntos = np.vstack(
         historial_xy
     )
 
-<<<<<<< HEAD
     puntos_x = np.concatenate([
         todos_los_puntos[:, 0],
     ])
@@ -908,31 +867,6 @@ def graficar_evolucion(
 
     margen_x = (x_max - x_min) * 0.10
     margen_y = (y_max - y_min) * 0.10
-=======
-    x_min = np.min(
-        todos_los_puntos[:, 0]
-    )
-
-    x_max = np.max(
-        todos_los_puntos[:, 0]
-    )
-
-    y_min = np.min(
-        todos_los_puntos[:, 1]
-    )
-
-    y_max = np.max(
-        todos_los_puntos[:, 1]
-    )
-
-    margen_x = (
-        (x_max - x_min) * 0.10
-    )
-
-    margen_y = (
-        (y_max - y_min) * 0.10
-    )
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
 
     if margen_x == 0:
         margen_x = 1
@@ -950,7 +884,6 @@ def graficar_evolucion(
         y_max + margen_y
     )
 
-<<<<<<< HEAD
     # ========================================================
     # FRONTERA DE MARKOWITZ
     # ========================================================
@@ -964,11 +897,6 @@ def graficar_evolucion(
     # ========================================================
     # POBLACIÓN
     # ========================================================
-=======
-    # --------------------------------------------------------
-    # Población inicial.
-    # --------------------------------------------------------
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
 
     scatter = ax.scatter(
         historial_xy[0][:, 0],
@@ -978,15 +906,9 @@ def graficar_evolucion(
         label="Población"
     )
 
-<<<<<<< HEAD
     # ========================================================
     # MEJOR INDIVIDUO
     # ========================================================
-=======
-    # --------------------------------------------------------
-    # Mejor individuo.
-    # --------------------------------------------------------
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
 
     mejor_scatter = ax.scatter(
         [],
@@ -996,13 +918,6 @@ def graficar_evolucion(
         label="Mejor individuo"
     )
 
-<<<<<<< HEAD
-=======
-    # --------------------------------------------------------
-    # Texto de generación.
-    # --------------------------------------------------------
-
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
     texto = ax.text(
         0.02,
         0.95,
@@ -1013,7 +928,6 @@ def graficar_evolucion(
 
     ax.legend()
 
-<<<<<<< HEAD
     # ========================================================
     # ACTUALIZACIÓN DE LA ANIMACIÓN
     # ========================================================
@@ -1021,45 +935,16 @@ def graficar_evolucion(
     def actualizar(generacion):
 
         puntos = historial_xy[generacion]
-=======
-    # --------------------------------------------------------
-    # Función de actualización.
-    # --------------------------------------------------------
-
-    def actualizar(generacion):
-
-        puntos = (
-            historial_xy[
-                generacion
-            ]
-        )
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
 
         scatter.set_offsets(
             puntos
         )
 
-<<<<<<< HEAD
         fitness_values = [
             fitness_function(individual)
             for individual in historial_poblaciones[generacion]
         ]
 
-=======
-        # Fitness de cada individuo.
-        fitness_values = [
-            fitness_function(
-                individuo
-            )
-            for individuo in (
-                historial_poblaciones[
-                    generacion
-                ]
-            )
-        ]
-
-        # Mejor individuo.
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
         mejor_index = np.argmax(
             fitness_values
         )
@@ -1082,18 +967,10 @@ def graficar_evolucion(
             ) * 100
         ]
 
-<<<<<<< HEAD
         # Mostramos el mejor individuo en todas las generaciones.
         mejor_scatter.set_offsets(
             [mejor_punto]
         )
-=======
-        if generacion == len(historial_poblaciones) - 1:
-            mejor_scatter.set_offsets([mejor_punto])
-            mejor_scatter.set_visible(True)
-        else:
-            mejor_scatter.set_visible(False)
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
 
         texto.set_text(
             f"Generación: "
@@ -1107,42 +984,22 @@ def graficar_evolucion(
             texto
         )
 
-<<<<<<< HEAD
     animacion = FuncAnimation(
         fig,
         actualizar,
         frames=len(historial_poblaciones),
-=======
-    # --------------------------------------------------------
-    # Crear animación.
-    # --------------------------------------------------------
-
-    animacion = FuncAnimation(
-        fig,
-        actualizar,
-        frames=len(
-            historial_poblaciones
-        ),
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
         interval=150,
         repeat=False
     )
 
-<<<<<<< HEAD
     plt.tight_layout()
-=======
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
     plt.show()
 
     return animacion
 
 
 # ============================================================
-<<<<<<< HEAD
 # 21. COMPARAR MÉTODOS
-=======
-# 20. COMPARAR MÉTODOS
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
 # ============================================================
 
 def comparar_metodos():
@@ -1361,7 +1218,6 @@ def comparar_metodos():
     )
 
 
-<<<<<<< HEAD
 
 # ============================================================
 # 22. COMPARAR DISTINTOS VALORES DE LAMBDA
@@ -1579,10 +1435,6 @@ def comparar_lambdas():
 
 # ============================================================
 # 23. MENÚ PRINCIPAL
-=======
-# ============================================================
-# 21. MENÚ PRINCIPAL
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
 # ============================================================
 
 def menu():
@@ -1607,12 +1459,9 @@ def menu():
             "3. Comparar ambos métodos"
         )
         print(
-<<<<<<< HEAD
             "4. Comparar distintos valores de Lambda"
         )
         print(
-=======
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
             "0. Salir"
         )
 
@@ -1706,7 +1555,6 @@ def menu():
             comparar_metodos()
 
         # ----------------------------------------------------
-<<<<<<< HEAD
         # OPCIÓN 4 - COMPARACIÓN DE LAMBDA
         # ----------------------------------------------------
 
@@ -1715,8 +1563,6 @@ def menu():
             comparar_lambdas()
 
         # ----------------------------------------------------
-=======
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
         # OPCIÓN 0 - SALIR
         # ----------------------------------------------------
 
@@ -1737,11 +1583,7 @@ def menu():
 
 
 # ============================================================
-<<<<<<< HEAD
 # 24. OBTENER DATOS Y EJECUTAR
-=======
-# 22. OBTENER DATOS Y EJECUTAR
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
 # ============================================================
 
 print(
@@ -1776,11 +1618,7 @@ print(
 
 
 # ============================================================
-<<<<<<< HEAD
 # 25. INICIAR MENÚ
-=======
-# 23. INICIAR MENÚ
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
 # ============================================================
 
 menu()
