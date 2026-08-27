@@ -3,12 +3,8 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import yfinance as yf
 
-<<<<<<< HEAD
 from scipy.optimize import minimize
-=======
->>>>>>> 7deebe7509b355a9d9cf113f54d056a9cead0df0
 from matplotlib.animation import FuncAnimation
-
 
 # ============================================================
 # 1. ACTIVOS
