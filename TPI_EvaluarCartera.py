@@ -1,268 +1,1624 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
+import yfinance as yf
+
+from scipy.optimize import minimize
+from matplotlib.animation import FuncAnimation
 
 
 # ============================================================
-# 1. DATOS DE LOS ACTIVOS
+# 1. ACTIVOS
 # ============================================================
 
-# Ejemplo: rendimientos históricos de 5 activos
-# Cada columna representa un activo
-returns = pd.DataFrame({
-    "YPF": [...],
-    "AL30": [...],
-    "APPLE": [...],
-    "ARCOR": [...],
-    "FCI": [...]
-})
+tickers = {
+    "SP500": "SPY",
+    "GOLD": "GLD",
+    "YPF": "YPF",
+    "COCA-COLA": "KO",
+    "QQQ": "QQQ",
+    "MERCADO LIBRE": "MELI",
+    "NVIDIA": "NVDA",
+}
+
+# ============================================================
+# 2. OBTENER PRECIOS HISTÓRICOS
+# ============================================================
+
+def obtener_precios(tickers, period="5y", interval="1mo"):
+    """
+    Obtiene los precios históricos de los activos.
+    """
+
+    prices = yf.download(
+        list(tickers.values()),
+        period=period,
+        interval=interval,
+        auto_adjust=True
+    )["Close"]
+
+    # En caso de que yfinance devuelva una sola columna.
+    if isinstance(prices, pd.Series):
+        prices = prices.to_frame()
+
+    # Reemplazamos los tickers de Yahoo por los nombres
+    # utilizados en nuestro modelo.
+    prices.columns = tickers.keys()
+
+    return prices
+
+
+def calcular_rendimientos(precios):
+    """
+    Calcula los rendimientos simples mensuales
+    a partir de los precios históricos.
+    """
+
+    return precios.pct_change().dropna()
 
 
 # ============================================================
-# 2. PARÁMETROS DEL MODELO
+# 3. PARÁMETROS DEL MODELO
 # ============================================================
 
-NUM_ASSETS = returns.shape[1]
-POPULATION_SIZE = 100
-GENERATIONS = 500
+TAM_CARTERA = len(tickers)
 
-MUTATION_RATE = 0.05
-CROSSOVER_RATE = 0.8
+TAM_POBLACION = 100
+GENERACIONES = 100
 
-LAMBDA = 0.5
+PROB_MUTACION = 0.05
+DESVIACION_MUTACION = 0.05
 
-# Tasa libre de riesgo, necesaria si usamos Sharpe
+PROB_CROSSOVER = 0.8
+
+# Coeficiente de aversión al riesgo.
+LAMBDA = 0.5 
+
+# Tasa libre de riesgo mensual.
 RISK_FREE_RATE = 0.0
 
+# ------------------------------------------------------------
+# Restricciones de inversión
+# ------------------------------------------------------------
+
+# Mínimo y máximo permitido por activo.
+MIN_INVERSION = 0.05
+MAX_INVERSION = 0.30
+
+if TAM_CARTERA * MIN_INVERSION > 1:
+    raise ValueError(
+        "La inversión mínima no permite distribuir el 100% del capital."
+    )
+
+if TAM_CARTERA * MAX_INVERSION < 1:
+    raise ValueError(
+        "La inversión máxima no permite distribuir el 100% del capital."
+    )
+
 
 # ============================================================
-# 3. DATOS ESTADÍSTICOS
+# 4. AJUSTAR CARTERA A LAS RESTRICCIONES
 # ============================================================
 
-# Rendimiento esperado de cada activo
-mu = returns.mean().values
+def ajustar_restricciones(proporciones):
+    """
+    Ajusta una cartera para cumplir simultáneamente:
 
-# Matriz de covarianzas
-cov_matrix = returns.cov().values
+        MIN_INVERSION <= peso_i <= MAX_INVERSION
+
+        sum(peso_i) = 1
+
+    Se utiliza una redistribución iterativa del capital.
+    """
+
+    pesos = np.asarray(proporciones, dtype=float).copy()
+
+    # Evitamos valores negativos.
+    pesos = np.maximum(pesos, 0)
+
+    # Si todos los pesos fueran cero, generamos una cartera nueva.
+    if np.sum(pesos) == 0:
+        return generar_cartera()
+
+    # Primera normalización.
+    pesos /= np.sum(pesos)
+
+    # Aplicamos límites.
+    pesos = np.clip(
+        pesos,
+        MIN_INVERSION,
+        MAX_INVERSION
+    )
+
+    # Redistribuimos hasta conseguir suma 1.
+    for _ in range(100):
+
+        diferencia = 1.0 - np.sum(pesos)
+
+        if abs(diferencia) < 1e-12:
+            break
+
+        if diferencia > 0:
+
+            # Capital que todavía se puede agregar.
+            capacidad = MAX_INVERSION - pesos
+
+            capacidad_total = np.sum(capacidad)
+
+            if capacidad_total <= 0:
+                break
+
+            pesos += diferencia * (
+                capacidad / capacidad_total
+            )
+
+        else:
+
+            # Capital que se debe quitar.
+            capacidad = pesos - MIN_INVERSION
+
+            capacidad_total = np.sum(capacidad)
+
+            if capacidad_total <= 0:
+                break
+
+            pesos += diferencia * (
+                capacidad / capacidad_total
+            )
+
+        pesos = np.clip(
+            pesos,
+            MIN_INVERSION,
+            MAX_INVERSION
+        )
+
+    # Corrección numérica final.
+    pesos /= np.sum(pesos)
+
+    # Una última corrección por posibles errores de redondeo.
+    diferencia = 1.0 - np.sum(pesos)
+
+    if abs(diferencia) > 1e-12:
+
+        if diferencia > 0:
+            indices = np.where(
+                pesos < MAX_INVERSION - 1e-12
+            )[0]
+        else:
+            indices = np.where(
+                pesos > MIN_INVERSION + 1e-12
+            )[0]
+
+        if len(indices) > 0:
+            pesos[indices[0]] += diferencia
+
+    return pesos
 
 
 # ============================================================
-# 4. GENERAR UNA CARTERA
+# 5. GENERAR UNA CARTERA
 # ============================================================
 
-def generate_portfolio():
+def generar_cartera():
     """
     Genera un individuo.
+
     Cada gen representa el porcentaje invertido
     en un activo.
+
+    La cartera cumple las restricciones de inversión
+    mínima y máxima.
     """
 
-    weights = np.random.random(NUM_ASSETS)
+    # Comenzamos asignando el mínimo a todos.
+    pesos = np.full(
+        TAM_CARTERA,
+        MIN_INVERSION
+    )
 
-    # Normalizamos para que la suma sea 1
-    weights /= np.sum(weights)
+    # Capital restante.
+    restante = 1.0 - np.sum(pesos)
 
-    return weights
+    # Capacidad restante de cada activo.
+    capacidades = np.full(
+        TAM_CARTERA,
+        MAX_INVERSION - MIN_INVERSION
+    )
+
+    while restante > 1e-12:
+
+        indices = np.where(
+            capacidades > 1e-12
+        )[0]
+
+        if len(indices) == 0:
+            break
+
+        valores = np.random.random(
+            len(indices)
+        )
+
+        valores /= np.sum(valores)
+
+        asignacion = np.minimum(
+            valores * restante,
+            capacidades[indices]
+        )
+
+        pesos[indices] += asignacion
+        capacidades[indices] -= asignacion
+
+        restante = 1.0 - np.sum(pesos)
+
+    return ajustar_restricciones(pesos)
 
 
 # ============================================================
-# 5. GENERAR POBLACIÓN
+# 6. GENERAR POBLACIÓN
 # ============================================================
 
-def generate_population():
+def generar_poblacion():
+
     return np.array([
-        generate_portfolio()
-        for _ in range(POPULATION_SIZE)
+        generar_cartera()
+        for _ in range(TAM_POBLACION)
     ])
 
 
 # ============================================================
-# 6. RENDIMIENTO DE LA CARTERA
+# 7. RENDIMIENTO DE LA CARTERA
 # ============================================================
 
-def portfolio_return(weights):
-    return np.dot(weights, mu)
+def retorno_cartera(proporciones):
 
-
-# ============================================================
-# 7. RIESGO DE LA CARTERA
-# ============================================================
-
-def portfolio_risk(weights):
-
-    variance = weights.T @ cov_matrix @ weights
-
-    return np.sqrt(variance)
+    return np.dot(
+        proporciones,
+        mu
+    )
 
 
 # ============================================================
-# 8. FITNESS
+# 8. RIESGO DE LA CARTERA
 # ============================================================
 
-def fitness(weights):
+def riesgo_cartera(proporciones):
 
-    expected_return = portfolio_return(weights)
-    risk = portfolio_risk(weights)
+    varianza = (
+        proporciones.T
+        @ cov_matrix
+        @ proporciones
+    )
 
-    return expected_return - LAMBDA * risk
+    return np.sqrt(
+        max(varianza, 0)
+    )
 
 
 # ============================================================
-# 9. SELECCIÓN
+# 9. FITNESS - LAMBDA
 # ============================================================
 
-def selection(population):
+def fitness_lambda(proporciones):
+
+    expected_return = retorno_cartera(
+        proporciones
+    )
+
+    riesgo = riesgo_cartera(
+        proporciones
+    )
+
+    return (
+        expected_return
+        - LAMBDA * riesgo
+    )
+
+
+# ============================================================
+# 10. FITNESS - ÍNDICE DE SHARPE
+# ============================================================
+
+def fitness_sharpe(proporciones):
+
+    expected_return = retorno_cartera(
+        proporciones
+    )
+
+    riesgo = riesgo_cartera(
+        proporciones
+    )
+
+    # Evitamos división por cero.
+    if riesgo == 0:
+        return 0
+
+    return (
+        expected_return
+        - RISK_FREE_RATE
+    ) / riesgo
+
+
+# ============================================================
+# 11. SELECCIÓN
+# ============================================================
+
+def seleccion_truncamiento(
+    poblacion,
+    fitness_function
+):
 
     fitness_values = np.array([
-        fitness(individual)
-        for individual in population
+        fitness_function(individual)
+        for individual in poblacion
     ])
 
-    # Ordenamos de mejor a peor
-    indexes = np.argsort(fitness_values)[::-1]
+    # Ordenamos de mejor a peor.
+    indexes = np.argsort(
+        fitness_values
+    )[::-1]
 
-    # Seleccionamos los mejores
-    selected = population[indexes[:POPULATION_SIZE // 2]]
+    # Seleccionamos la mitad superior.
+    selected = poblacion[
+        indexes[:TAM_POBLACION // 2]
+    ]
 
     return selected
 
 
 # ============================================================
-# 10. CRUCE
+# 12. CRUCE
 # ============================================================
 
-def crossover(parent1, parent2):
+def crossover(p1, p2):
 
-    if np.random.random() > CROSSOVER_RATE:
-        return parent1.copy()
+    if np.random.random() > PROB_CROSSOVER:
+        return p1.copy()
 
     alpha = np.random.random()
 
-    child = alpha * parent1 + (1 - alpha) * parent2
+    hijo = (
+        alpha * p1
+        + (1 - alpha) * p2
+    )
 
-    # Nos aseguramos de que los pesos sumen 1
-    child /= np.sum(child)
+    # Aplicamos las restricciones.
+    hijo = ajustar_restricciones(
+        hijo
+    )
 
-    return child
-
-
-# ============================================================
-# 11. MUTACIÓN
-# ============================================================
-
-def mutation(individual):
-
-    for i in range(NUM_ASSETS):
-
-        if np.random.random() < MUTATION_RATE:
-
-            # Pequeña modificación del peso
-            individual[i] += np.random.normal(0, 0.05)
-
-    # Evitamos pesos negativos
-    individual = np.maximum(individual, 0)
-
-    # Volvemos a normalizar
-    if np.sum(individual) > 0:
-        individual /= np.sum(individual)
-
-    return individual
+    return hijo
 
 
 # ============================================================
-# 12. CREAR NUEVA POBLACIÓN
+# 13. MUTACIÓN
 # ============================================================
 
-def create_new_population(selected):
+def mutacion(individuo):
 
-    new_population = []
+    individuo = individuo.copy()
 
-    while len(new_population) < POPULATION_SIZE:
+    for i in range(TAM_CARTERA):
 
-        parent1 = selected[
-            np.random.randint(len(selected))
+        if np.random.random() < PROB_MUTACION:
+
+            individuo[i] += np.random.normal(
+                0,
+                DESVIACION_MUTACION
+            )
+
+    # Aplicamos las restricciones.
+    individuo = ajustar_restricciones(
+        individuo
+    )
+
+    return individuo
+
+
+# ============================================================
+# 14. CREAR NUEVA POBLACIÓN
+# ============================================================
+
+def crear_nueva_poblacion(
+    poblacion_selec
+):
+
+    nueva_poblacion = []
+
+    while len(nueva_poblacion) < TAM_POBLACION:
+
+        parent1 = poblacion_selec[
+            np.random.randint(
+                len(poblacion_selec)
+            )
         ]
 
-        parent2 = selected[
-            np.random.randint(len(selected))
+        parent2 = poblacion_selec[
+            np.random.randint(
+                len(poblacion_selec)
+            )
         ]
 
-        child = crossover(parent1, parent2)
+        child = crossover(
+            parent1,
+            parent2
+        )
 
-        child = mutation(child)
+        child = mutacion(
+            child
+        )
 
-        new_population.append(child)
+        nueva_poblacion.append(
+            child
+        )
 
-    return np.array(new_population)
+    return np.array(
+        nueva_poblacion
+    )
 
 
 # ============================================================
-# 13. ALGORITMO GENÉTICO
+# 15. ALGORITMO GENÉTICO
 # ============================================================
 
-def genetic_algorithm():
+def algoritmo_genetico(
+    fitness_function,
+    poblacion_inicial=None
+):
+    """
+    Ejecuta el algoritmo genético.
 
-    population = generate_population()
+    Además de la mejor cartera, devuelve el historial
+    de poblaciones para poder visualizar su evolución.
+    """
+
+    if poblacion_inicial is None:
+
+        population = generar_poblacion()
+
+    else:
+
+        population = (
+            poblacion_inicial.copy()
+        )
 
     best_individual = None
     best_fitness = -np.inf
 
-    for generation in range(GENERATIONS):
+    # Historial completo de las poblaciones.
+    historial_poblaciones = []
 
-        # Evaluamos la población
+    # Historial del mejor individuo de cada generación.
+    historial_mejores = []
+
+    for generation in range(
+        GENERACIONES
+    ):
+
+        # ----------------------------------------------------
+        # Guardamos la población actual.
+        # ----------------------------------------------------
+
+        historial_poblaciones.append(
+            population.copy()
+        )
+
+        # ----------------------------------------------------
+        # Evaluamos la población.
+        # ----------------------------------------------------
+
         fitness_values = np.array([
-            fitness(individual)
+            fitness_function(individual)
             for individual in population
         ])
 
-        # Mejor individuo de esta generación
-        best_index = np.argmax(fitness_values)
+        # Mejor individuo de la generación.
+        best_index = np.argmax(
+            fitness_values
+        )
 
-        current_best = population[best_index]
-        current_fitness = fitness_values[best_index]
+        current_best = (
+            population[
+                best_index
+            ].copy()
+        )
 
-        # Guardamos el mejor global
+        current_fitness = (
+            fitness_values[
+                best_index
+            ]
+        )
+
+        historial_mejores.append(
+            current_best.copy()
+        )
+
+        # ----------------------------------------------------
+        # Mejor individuo global.
+        # ----------------------------------------------------
+
         if current_fitness > best_fitness:
 
-            best_fitness = current_fitness
-            best_individual = current_best.copy()
+            best_fitness = (
+                current_fitness
+            )
 
-        # Selección
-        selected = selection(population)
+            best_individual = (
+                current_best.copy()
+            )
 
-        # Cruce + mutación
-        population = create_new_population(selected)
+        # ----------------------------------------------------
+        # Selección.
+        # ----------------------------------------------------
+
+        selected = (
+            seleccion_truncamiento(
+                population,
+                fitness_function
+            )
+        )
+
+        # ----------------------------------------------------
+        # Cruce + mutación.
+        # ----------------------------------------------------
+
+        population = (
+            crear_nueva_poblacion(
+                selected
+            )
+        )
 
         print(
             f"Generación {generation + 1}: "
             f"Fitness = {current_fitness:.6f}"
         )
 
-    return best_individual, best_fitness
+    return (
+        best_individual,
+        best_fitness,
+        historial_poblaciones,
+        historial_mejores
+    )
 
 
 # ============================================================
-# 14. EJECUCIÓN
+# 16. MOSTRAR RESULTADOS
 # ============================================================
 
-best_portfolio, best_fitness = genetic_algorithm()
+def mostrar_resultados(
+    titulo,
+    portfolio,
+    fitness_value
+):
+
+    expected_return = (
+        retorno_cartera(
+            portfolio
+        )
+    )
+
+    risk = (
+        riesgo_cartera(
+            portfolio
+        )
+    )
+
+    sharpe = (
+        fitness_sharpe(
+            portfolio
+        )
+    )
+
+    print("\n" + "=" * 60)
+    print(titulo)
+    print("=" * 60)
+
+    print(
+        "\nDistribución de la cartera:"
+    )
+
+    for asset, weight in zip(
+        retornos.columns,
+        portfolio
+    ):
+
+        print(
+            f"{asset:<20}: "
+            f"{weight:>8.2%}"
+        )
+
+    print(
+        "\nSuma de pesos:"
+    )
+
+    print(
+        f"{np.sum(portfolio):.6f}"
+    )
+
+    print(
+        "\nRendimiento esperado:"
+    )
+
+    print(
+        f"{expected_return:.6f}"
+    )
+
+    print(
+        "\nRiesgo:"
+    )
+
+    print(
+        f"{risk:.6f}"
+    )
+
+    print(
+        "\nÍndice de Sharpe:"
+    )
+
+    print(
+        f"{sharpe:.6f}"
+    )
+
+    print(
+        "\nFitness:"
+    )
+
+    print(
+        f"{fitness_value:.6f}"
+    )
 
 
 # ============================================================
-# 15. RESULTADOS
+# 17. GRAFICAR CARTERA
 # ============================================================
 
-print("\n--- MEJOR CARTERA ---")
+def graficar_cartera(
+    mejor_cartera,
+    titulo="Distribución de la cartera óptima"
+):
 
-for asset, weight in zip(returns.columns, best_portfolio):
+    rendimiento_mensual = (
+        retorno_cartera(
+            mejor_cartera
+        )
+    )
 
-    print(f"{asset}: {weight:.2%}")
+    riesgo_mensual = (
+        riesgo_cartera(
+            mejor_cartera
+        )
+    )
+
+    # Tasa anual simple.
+    rendimiento_anual_tda = (
+        rendimiento_mensual * 12
+    )
+
+    # Tasa efectiva anual.
+    rendimiento_anual_tea = (
+        (1 + rendimiento_mensual) ** 12
+        - 1
+    )
+
+    # Anualización de la volatilidad.
+    riesgo_anual = (
+        riesgo_mensual * np.sqrt(12)
+    )
+
+    plt.figure(
+        figsize=(8, 8)
+    )
+
+    plt.pie(
+        mejor_cartera,
+        labels=retornos.columns,
+        autopct="%1.1f%%",
+        startangle=90
+    )
+
+    plt.title(
+        titulo
+    )
+
+    descripcion = (
+        f"Rendimiento esperado mensual: "
+        f"{rendimiento_mensual * 100:.2f}%\n"
+        f"Riesgo mensual: "
+        f"{riesgo_mensual * 100:.2f}%\n\n"
+        f"Rendimiento esperado anual (TDA): "
+        f"{rendimiento_anual_tda * 100:.2f}%\n"
+        f"Rendimiento esperado anual (TEA): "
+        f"{rendimiento_anual_tea * 100:.2f}%\n"
+        f"Riesgo anual: "
+        f"{riesgo_anual * 100:.2f}%"
+    )
+
+    plt.figtext(
+        0.5,
+        0.02,
+        descripcion,
+        ha="left",
+        fontsize=11
+    )
+
+    plt.tight_layout(
+        rect=[
+            0,
+            0.08,
+            1,
+            1
+        ]
+    )
+
+    plt.show()
+
+# ============================================================
+# 19. PREPARAR DATOS PARA EL GRÁFICO DE EVOLUCIÓN
+# ============================================================
 
 
-print("\nRendimiento esperado:",
-      portfolio_return(best_portfolio))
+def convertir_historial_xy(
+    historial_poblaciones
+):
+    """
+    Convierte cada población del historial a puntos
+    (riesgo, rendimiento).
+    """
 
-print("Riesgo:",
-      portfolio_risk(best_portfolio))
+    historial_xy = []
 
-print("Fitness:",
-      best_fitness)
+    for poblacion in (
+        historial_poblaciones
+    ):
+
+        puntos = []
+
+        for individuo in (
+            poblacion
+        ):
+
+            riesgo = (
+                riesgo_cartera(
+                    individuo
+                )
+            )
+
+            rendimiento = (
+                retorno_cartera(
+                    individuo
+                )
+            )
+
+            puntos.append([
+                riesgo * 100,
+                rendimiento * 100
+            ])
+
+        historial_xy.append(
+            np.array(puntos)
+        )
+
+    return historial_xy
+
+
+# ============================================================
+# 20. GRAFICAR EVOLUCIÓN DE LAS GENERACIONES
+# ============================================================
+
+def graficar_evolucion(
+    historial_poblaciones,
+    fitness_function,
+    titulo
+):
+    """
+    Animación de la evolución del algoritmo genético
+    superpuesta sobre la frontera eficiente de Markowitz.
+    """
+
+    historial_xy = convertir_historial_xy(
+        historial_poblaciones
+    )
+
+    # --------------------------------------------------------
+    # Calculamos la frontera una sola vez.
+    # Lambda NO interviene en este cálculo.
+    # --------------------------------------------------------
+
+    fig, ax = plt.subplots(
+        figsize=(9, 7)
+    )
+
+    ax.set_xlabel(
+        "Volatilidad (%)"
+    )
+
+    ax.set_ylabel(
+        "Rendimiento esperado (%)"
+    )
+
+    ax.set_title(
+        titulo
+    )
+
+    ax.grid(
+        True,
+        alpha=0.3
+    )
+
+    # ========================================================
+    # RANGO DE LOS EJES
+    # ========================================================
+
+    todos_los_puntos = np.vstack(
+        historial_xy
+    )
+
+    puntos_x = np.concatenate([
+        todos_los_puntos[:, 0],
+    ])
+
+    puntos_y = np.concatenate([
+        todos_los_puntos[:, 1],
+    ])
+
+    x_min = np.min(puntos_x)
+    x_max = np.max(puntos_x)
+    y_min = np.min(puntos_y)
+    y_max = np.max(puntos_y)
+
+    margen_x = (x_max - x_min) * 0.10
+    margen_y = (y_max - y_min) * 0.10
+
+    if margen_x == 0:
+        margen_x = 1
+
+    if margen_y == 0:
+        margen_y = 1
+
+    ax.set_xlim(
+        x_min - margen_x,
+        x_max + margen_x
+    )
+
+    ax.set_ylim(
+        y_min - margen_y,
+        y_max + margen_y
+    )
+
+    # ========================================================
+    # FRONTERA DE MARKOWITZ
+    # ========================================================
+
+    ax.plot(
+
+        linewidth=2.5,
+        label="Frontera eficiente de Markowitz"
+    )
+
+    # ========================================================
+    # POBLACIÓN
+    # ========================================================
+
+    scatter = ax.scatter(
+        historial_xy[0][:, 0],
+        historial_xy[0][:, 1],
+        s=25,
+        alpha=0.6,
+        label="Población"
+    )
+
+    # ========================================================
+    # MEJOR INDIVIDUO
+    # ========================================================
+
+    mejor_scatter = ax.scatter(
+        [],
+        [],
+        s=120,
+        marker="*",
+        label="Mejor individuo"
+    )
+
+    texto = ax.text(
+        0.02,
+        0.95,
+        "",
+        transform=ax.transAxes,
+        verticalalignment="top"
+    )
+
+    ax.legend()
+
+    # ========================================================
+    # ACTUALIZACIÓN DE LA ANIMACIÓN
+    # ========================================================
+
+    def actualizar(generacion):
+
+        puntos = historial_xy[generacion]
+
+        scatter.set_offsets(
+            puntos
+        )
+
+        fitness_values = [
+            fitness_function(individual)
+            for individual in historial_poblaciones[generacion]
+        ]
+
+        mejor_index = np.argmax(
+            fitness_values
+        )
+
+        mejor_individuo = (
+            historial_poblaciones[
+                generacion
+            ][
+                mejor_index
+            ]
+        )
+
+        mejor_punto = [
+            riesgo_cartera(
+                mejor_individuo
+            ) * 100,
+
+            retorno_cartera(
+                mejor_individuo
+            ) * 100
+        ]
+
+        # Mostramos el mejor individuo en todas las generaciones.
+        mejor_scatter.set_offsets(
+            [mejor_punto]
+        )
+
+        texto.set_text(
+            f"Generación: "
+            f"{generacion + 1} / "
+            f"{len(historial_poblaciones)}"
+        )
+
+        return (
+            scatter,
+            mejor_scatter,
+            texto
+        )
+
+    animacion = FuncAnimation(
+        fig,
+        actualizar,
+        frames=len(historial_poblaciones),
+        interval=150,
+        repeat=False
+    )
+
+    plt.tight_layout()
+    plt.show()
+
+    return animacion
+
+
+# ============================================================
+# 21. COMPARAR MÉTODOS
+# ============================================================
+
+def comparar_metodos():
+
+    print("\n")
+    print("=" * 60)
+    print(
+        "              COMPARACIÓN DE MÉTODOS"
+    )
+    print("=" * 60)
+
+    # --------------------------------------------------------
+    # Misma población inicial para ambos métodos.
+    # --------------------------------------------------------
+
+    poblacion_inicial = (
+        generar_poblacion()
+    )
+
+    # --------------------------------------------------------
+    # FITNESS LAMBDA
+    # --------------------------------------------------------
+
+    print(
+        "\nEjecutando Fitness Lambda...\n"
+    )
+
+    (
+        portfolio_lambda,
+        fitness_lambda_value,
+        historial_lambda,
+        mejores_lambda
+    ) = algoritmo_genetico(
+        fitness_lambda,
+        poblacion_inicial
+    )
+
+    # --------------------------------------------------------
+    # FITNESS SHARPE
+    # --------------------------------------------------------
+
+    print(
+        "\nEjecutando Índice de Sharpe...\n"
+    )
+
+    (
+        portfolio_sharpe,
+        fitness_sharpe_value,
+        historial_sharpe,
+        mejores_sharpe
+    ) = algoritmo_genetico(
+        fitness_sharpe,
+        poblacion_inicial
+    )
+
+    # --------------------------------------------------------
+    # RESULTADOS INDIVIDUALES
+    # --------------------------------------------------------
+
+    mostrar_resultados(
+        "RESULTADO - FITNESS LAMBDA",
+        portfolio_lambda,
+        fitness_lambda_value
+    )
+
+    mostrar_resultados(
+        "RESULTADO - ÍNDICE DE SHARPE",
+        portfolio_sharpe,
+        fitness_sharpe_value
+    )
+
+    # --------------------------------------------------------
+    # MÉTRICAS COMPARABLES
+    # --------------------------------------------------------
+
+    return_lambda = (
+        retorno_cartera(
+            portfolio_lambda
+        )
+    )
+
+    risk_lambda = (
+        riesgo_cartera(
+            portfolio_lambda
+        )
+    )
+
+    sharpe_lambda = (
+        fitness_sharpe(
+            portfolio_lambda
+        )
+    )
+
+    return_sharpe = (
+        retorno_cartera(
+            portfolio_sharpe
+        )
+    )
+
+    risk_sharpe = (
+        riesgo_cartera(
+            portfolio_sharpe
+        )
+    )
+
+    sharpe_sharpe = (
+        fitness_sharpe(
+            portfolio_sharpe
+        )
+    )
+
+    # --------------------------------------------------------
+    # TABLA COMPARATIVA
+    # --------------------------------------------------------
+
+    print("\n")
+    print("=" * 70)
+    print(
+        "                         COMPARACIÓN"
+    )
+    print("=" * 70)
+
+    print(
+        f"{'Métrica':<30}"
+        f"{'Lambda':>18}"
+        f"{'Sharpe':>18}"
+    )
+
+    print("-" * 70)
+
+    print(
+        f"{'Rendimiento esperado':<30}"
+        f"{return_lambda:>18.6f}"
+        f"{return_sharpe:>18.6f}"
+    )
+
+    print(
+        f"{'Riesgo':<30}"
+        f"{risk_lambda:>18.6f}"
+        f"{risk_sharpe:>18.6f}"
+    )
+
+    print(
+        f"{'Índice de Sharpe':<30}"
+        f"{sharpe_lambda:>18.6f}"
+        f"{sharpe_sharpe:>18.6f}"
+    )
+
+    print("=" * 70)
+
+    # --------------------------------------------------------
+    # PESOS
+    # --------------------------------------------------------
+
+    print("\n")
+    print("=" * 70)
+    print(
+        "                    DISTRIBUCIÓN DE CARTERAS"
+    )
+    print("=" * 70)
+
+    print(
+        f"{'Activo':<20}"
+        f"{'Lambda':>20}"
+        f"{'Sharpe':>20}"
+    )
+
+    print("-" * 70)
+
+    for (
+        asset,
+        weight_lambda,
+        weight_sharpe
+    ) in zip(
+        retornos.columns,
+        portfolio_lambda,
+        portfolio_sharpe
+    ):
+
+        print(
+            f"{asset:<20}"
+            f"{weight_lambda:>19.2%}"
+            f"{weight_sharpe:>20.2%}"
+        )
+
+    print("=" * 70)
+
+    # --------------------------------------------------------
+    # GRÁFICOS DE CARTERA
+    # --------------------------------------------------------
+
+    graficar_cartera(
+        portfolio_lambda,
+        "Cartera óptima - Fitness Lambda"
+    )
+
+    graficar_cartera(
+        portfolio_sharpe,
+        "Cartera óptima - Índice de Sharpe"
+    )
+
+    # --------------------------------------------------------
+    # EVOLUCIÓN DE LAS GENERACIONES
+    # --------------------------------------------------------
+
+    graficar_evolucion(
+        historial_lambda,
+        fitness_lambda,
+        "Evolución de las generaciones - Fitness Lambda"
+    )
+
+    graficar_evolucion(
+        historial_sharpe,
+        fitness_sharpe,
+        "Evolución de las generaciones - Índice de Sharpe"
+    )
+
+
+
+# ============================================================
+# 22. COMPARAR DISTINTOS VALORES DE LAMBDA
+# ============================================================
+
+def comparar_lambdas():
+    """
+    Ejecuta el algoritmo genético para distintos valores de
+    lambda y superpone la evolución de cada uno sobre la misma
+    frontera eficiente de Markowitz.
+
+    Se utiliza la misma población inicial para que la comparación
+    sea más consistente.
+    """
+
+    valores_lambda = [
+        0.0,
+        0.25,
+        0.375,
+        0.5,
+        1.0,
+        2.0,
+    ]
+
+    print("\n")
+    print("=" * 70)
+    print("              COMPARACIÓN DE VALORES DE LAMBDA")
+    print("=" * 70)
+
+    print(
+        "\nValores a probar:",
+        valores_lambda
+    )
+    
+    # --------------------------------------------------------
+    # Misma población inicial para todos los lambda.
+    # --------------------------------------------------------
+
+    poblacion_inicial = generar_poblacion()
+
+    resultados = []
+
+    # Guardamos las evoluciones para el gráfico conjunto.
+    evoluciones = []
+
+    # --------------------------------------------------------
+    # Ejecutamos un AG por cada lambda.
+    # --------------------------------------------------------
+
+    for lambda_actual in valores_lambda:
+
+        print(
+            f"\n{'-' * 70}\n"
+            f"Ejecutando lambda = {lambda_actual}\n"
+            f"{'-' * 70}"
+        )
+
+        # Cambiamos temporalmente el lambda global.
+        global LAMBDA
+        LAMBDA = lambda_actual
+
+        (
+            cartera,
+            fitness_value,
+            historial_poblaciones,
+            historial_mejores
+        ) = algoritmo_genetico(
+            fitness_lambda,
+            poblacion_inicial
+        )
+
+        rendimiento = retorno_cartera(
+            cartera
+        )
+
+        riesgo = riesgo_cartera(
+            cartera
+        )
+
+        sharpe = fitness_sharpe(
+            cartera
+        )
+
+        resultados.append({
+            "lambda": lambda_actual,
+            "rendimiento": rendimiento,
+            "riesgo": riesgo,
+            "sharpe": sharpe,
+            "fitness": fitness_value,
+            "cartera": cartera
+        })
+
+        evoluciones.append(
+        (
+            lambda_actual,
+            historial_mejores,
+            cartera
+        )
+    )
+    # ========================================================
+    # TABLA DE RESULTADOS
+    # ========================================================
+
+    print("\n")
+    print("=" * 85)
+    print("                         RESULTADOS")
+    print("=" * 85)
+
+    print(
+        f"{'Lambda':>10}"
+        f"{'Rendimiento':>20}"
+        f"{'Riesgo':>20}"
+        f"{'Sharpe':>15}"
+        f"{'Fitness':>20}"
+    )
+
+    print("-" * 85)
+
+    for resultado in resultados:
+
+        print(
+            f"{resultado['lambda']:>10.2f}"
+            f"{resultado['rendimiento']:>19.6f}"
+            f"{resultado['riesgo']:>20.6f}"
+            f"{resultado['sharpe']:>15.6f}"
+            f"{resultado['fitness']:>20.6f}"
+        )
+
+    print("=" * 85)
+
+    # ========================================================
+    # GRÁFICO COMPARATIVO DE EVOLUCIONES
+    # ========================================================
+
+    fig, ax = plt.subplots(
+        figsize=(10, 8)
+    )
+
+
+    for lambda_actual, mejores, mejor_global in evoluciones:
+
+        # ========================================================
+        # MEJOR INDIVIDUO DE CADA GENERACIÓN
+        # ========================================================
+
+        riesgos_mejores = [
+            riesgo_cartera(individuo) * 100
+            for individuo in mejores
+        ]
+
+        rendimientos_mejores = [
+            retorno_cartera(individuo) * 100
+            for individuo in mejores
+        ]
+
+        # --------------------------------------------------------
+        # Puntos aislados de la evolución
+        # --------------------------------------------------------
+
+        ax.scatter(
+            riesgos_mejores,
+            rendimientos_mejores,
+            s=15,
+            alpha=0.5
+            )
+
+        # ========================================================
+        # MEJOR INDIVIDUO GLOBAL DE TODA LA EJECUCIÓN
+        # ========================================================
+
+        riesgo_global = (
+            riesgo_cartera(mejor_global) * 100
+        )
+
+        rendimiento_global = (
+            retorno_cartera(mejor_global) * 100
+        )
+
+        ax.scatter(
+            riesgo_global,
+            rendimiento_global,
+            s=150,
+            marker="*",
+            edgecolors="black",
+            linewidths=0.8,
+            label=f"λ = {lambda_actual:g}"
+        )
+        
+    ax.set_xlabel(
+        "Volatilidad (%)"
+    )
+
+    ax.set_ylabel(
+        "Rendimiento esperado (%)"
+    )
+
+    ax.set_title(
+        "Evolución del algoritmo genético para distintos valores de λ"
+    )
+
+    ax.grid(
+        True,
+        alpha=0.3
+    )
+
+    ax.legend(
+        fontsize=9
+    )
+
+    plt.tight_layout()
+    plt.show()
+
+    return resultados
+
+
+# ============================================================
+# 23. MENÚ PRINCIPAL
+# ============================================================
+
+def menu():
+
+    while True:
+
+        print("\n")
+        print("=" * 60)
+        print(
+            "             OPTIMIZACIÓN DE CARTERAS"
+        )
+        print("=" * 60)
+
+        print()
+        print(
+            "1. Ejecutar con Fitness Lambda"
+        )
+        print(
+            "2. Ejecutar con Índice de Sharpe"
+        )
+        print(
+            "3. Comparar ambos métodos"
+        )
+        print(
+            "4. Comparar distintos valores de Lambda"
+        )
+        print(
+            "0. Salir"
+        )
+
+        print()
+        print("=" * 60)
+
+        option = input(
+            "Seleccione una opción: "
+        )
+
+        # ----------------------------------------------------
+        # OPCIÓN 1 - LAMBDA
+        # ----------------------------------------------------
+
+        if option == "1":
+
+            print(
+                "\nEjecutando algoritmo "
+                "con Fitness Lambda...\n"
+            )
+
+            (
+                best_portfolio,
+                best_fitness,
+                historial_poblaciones,
+                historial_mejores
+            ) = algoritmo_genetico(
+                fitness_lambda
+            )
+
+            mostrar_resultados(
+                "RESULTADO - FITNESS LAMBDA",
+                best_portfolio,
+                best_fitness
+            )
+
+            graficar_cartera(
+                best_portfolio,
+                "Cartera óptima - Fitness Lambda"
+            )
+
+            graficar_evolucion(
+                historial_poblaciones,
+                fitness_lambda,
+                "Evolución de las generaciones - Fitness Lambda"
+            )
+
+        # ----------------------------------------------------
+        # OPCIÓN 2 - SHARPE
+        # ----------------------------------------------------
+
+        elif option == "2":
+
+            print(
+                "\nEjecutando algoritmo "
+                "con Índice de Sharpe...\n"
+            )
+
+            (
+                best_portfolio,
+                best_fitness,
+                historial_poblaciones,
+                historial_mejores
+            ) = algoritmo_genetico(
+                fitness_sharpe
+            )
+
+            mostrar_resultados(
+                "RESULTADO - ÍNDICE DE SHARPE",
+                best_portfolio,
+                best_fitness
+            )
+
+            graficar_cartera(
+                best_portfolio,
+                "Cartera óptima - Índice de Sharpe"
+            )
+
+            graficar_evolucion(
+                historial_poblaciones,
+                fitness_sharpe,
+                "Evolución de las generaciones - Índice de Sharpe"
+            )
+
+        # ----------------------------------------------------
+        # OPCIÓN 3 - COMPARACIÓN
+        # ----------------------------------------------------
+
+        elif option == "3":
+
+            comparar_metodos()
+
+        # ----------------------------------------------------
+        # OPCIÓN 4 - COMPARACIÓN DE LAMBDA
+        # ----------------------------------------------------
+
+        elif option == "4":
+
+            comparar_lambdas()
+
+        # ----------------------------------------------------
+        # OPCIÓN 0 - SALIR
+        # ----------------------------------------------------
+
+        elif option == "0":
+
+            print(
+                "\nPrograma finalizado."
+            )
+
+            break
+
+        else:
+
+            print(
+                "\nOpción inválida. "
+                "Intente nuevamente."
+            )
+
+
+# ============================================================
+# 24. OBTENER DATOS Y EJECUTAR
+# ============================================================
+
+print(
+    "\nObteniendo datos históricos..."
+)
+
+precios = obtener_precios(
+    tickers
+)
+
+retornos = calcular_rendimientos(
+    precios
+)
+
+# Rendimiento esperado de cada activo.
+mu = retornos.mean().values
+
+# Matriz de covarianzas.
+cov_matrix = retornos.cov().values
+
+print(
+    "\nDatos obtenidos correctamente."
+)
+
+print(
+    "\n--- RENDIMIENTOS HISTÓRICOS ---"
+)
+
+print(
+    retornos
+)
+
+
+# ============================================================
+# 25. INICIAR MENÚ
+# ============================================================
+
+menu()
