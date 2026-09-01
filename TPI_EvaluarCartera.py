@@ -6,11 +6,6 @@ import yfinance as yf
 from scipy.optimize import minimize
 from matplotlib.animation import FuncAnimation
 
-
-# ============================================================
-# 1. ACTIVOS
-# ============================================================
-
 tickers = {
     "SP500": "SPY",
     "GOLD": "GLD",
@@ -21,9 +16,25 @@ tickers = {
     "NVIDIA": "NVDA",
 }
 
-# ============================================================
-# 2. OBTENER PRECIOS HISTÓRICOS
-# ============================================================
+TAM_CARTERA = len(tickers)
+
+TAM_POBLACION = 100
+GENERACIONES = 100
+
+PROB_MUTACION = 0.05
+DESVIACION_MUTACION = 0.05
+
+PROB_CROSSOVER = 0.8
+
+# Coeficiente de aversión al riesgo.
+LAMBDA = 0.5
+
+# Tasa libre de riesgo mensual.
+RISK_FREE_RATE = 0
+
+# Mínimo y máximo permitido por activo.
+MIN_INVERSION = 0.05
+MAX_INVERSION = 0.25
 
 def obtener_precios(tickers, period="5y", interval="1mo"):
     """
@@ -56,35 +67,6 @@ def calcular_rendimientos(precios):
 
     return precios.pct_change().dropna()
 
-
-# ============================================================
-# 3. PARÁMETROS DEL MODELO
-# ============================================================
-
-TAM_CARTERA = len(tickers)
-
-TAM_POBLACION = 100
-GENERACIONES = 100
-
-PROB_MUTACION = 0.05
-DESVIACION_MUTACION = 0.05
-
-PROB_CROSSOVER = 0.8
-
-# Coeficiente de aversión al riesgo.
-LAMBDA = 0.5 
-
-# Tasa libre de riesgo mensual.
-RISK_FREE_RATE = 0.0
-
-# ------------------------------------------------------------
-# Restricciones de inversión
-# ------------------------------------------------------------
-
-# Mínimo y máximo permitido por activo.
-MIN_INVERSION = 0.05
-MAX_INVERSION = 0.30
-
 if TAM_CARTERA * MIN_INVERSION > 1:
     raise ValueError(
         "La inversión mínima no permite distribuir el 100% del capital."
@@ -94,11 +76,6 @@ if TAM_CARTERA * MAX_INVERSION < 1:
     raise ValueError(
         "La inversión máxima no permite distribuir el 100% del capital."
     )
-
-
-# ============================================================
-# 4. AJUSTAR CARTERA A LAS RESTRICCIONES
-# ============================================================
 
 def ajustar_restricciones(proporciones):
     """
@@ -194,11 +171,6 @@ def ajustar_restricciones(proporciones):
 
     return pesos
 
-
-# ============================================================
-# 5. GENERAR UNA CARTERA
-# ============================================================
-
 def generar_cartera():
     """
     Genera un individuo.
@@ -253,10 +225,6 @@ def generar_cartera():
     return ajustar_restricciones(pesos)
 
 
-# ============================================================
-# 6. GENERAR POBLACIÓN
-# ============================================================
-
 def generar_poblacion():
 
     return np.array([
@@ -264,23 +232,13 @@ def generar_poblacion():
         for _ in range(TAM_POBLACION)
     ])
 
-
-# ============================================================
-# 7. RENDIMIENTO DE LA CARTERA
-# ============================================================
-
 def retorno_cartera(proporciones):
 
     return np.dot(
         proporciones,
         mu
     )
-
-
-# ============================================================
-# 8. RIESGO DE LA CARTERA
-# ============================================================
-
+    
 def riesgo_cartera(proporciones):
 
     varianza = (
@@ -292,11 +250,6 @@ def riesgo_cartera(proporciones):
     return np.sqrt(
         max(varianza, 0)
     )
-
-
-# ============================================================
-# 9. FITNESS - LAMBDA
-# ============================================================
 
 def fitness_lambda(proporciones):
 
@@ -312,12 +265,7 @@ def fitness_lambda(proporciones):
         expected_return
         - LAMBDA * riesgo
     )
-
-
-# ============================================================
-# 10. FITNESS - ÍNDICE DE SHARPE
-# ============================================================
-
+    
 def fitness_sharpe(proporciones):
 
     expected_return = retorno_cartera(
@@ -336,11 +284,6 @@ def fitness_sharpe(proporciones):
         expected_return
         - RISK_FREE_RATE
     ) / riesgo
-
-
-# ============================================================
-# 11. SELECCIÓN
-# ============================================================
 
 def seleccion_truncamiento(
     poblacion,
@@ -364,11 +307,6 @@ def seleccion_truncamiento(
 
     return selected
 
-
-# ============================================================
-# 12. CRUCE
-# ============================================================
-
 def crossover(p1, p2):
 
     if np.random.random() > PROB_CROSSOVER:
@@ -387,11 +325,6 @@ def crossover(p1, p2):
     )
 
     return hijo
-
-
-# ============================================================
-# 13. MUTACIÓN
-# ============================================================
 
 def mutacion(individuo):
 
@@ -412,11 +345,6 @@ def mutacion(individuo):
     )
 
     return individuo
-
-
-# ============================================================
-# 14. CREAR NUEVA POBLACIÓN
-# ============================================================
 
 def crear_nueva_poblacion(
     poblacion_selec
@@ -455,11 +383,6 @@ def crear_nueva_poblacion(
         nueva_poblacion
     )
 
-
-# ============================================================
-# 15. ALGORITMO GENÉTICO
-# ============================================================
-
 def algoritmo_genetico(
     fitness_function,
     poblacion_inicial=None
@@ -473,11 +396,11 @@ def algoritmo_genetico(
 
     if poblacion_inicial is None:
 
-        population = generar_poblacion()
+        poblacion = generar_poblacion()
 
     else:
 
-        population = (
+        poblacion = (
             poblacion_inicial.copy()
         )
 
@@ -490,25 +413,17 @@ def algoritmo_genetico(
     # Historial del mejor individuo de cada generación.
     historial_mejores = []
 
-    for generation in range(
-        GENERACIONES
-    ):
+    for generation in range(GENERACIONES):
 
-        # ----------------------------------------------------
         # Guardamos la población actual.
-        # ----------------------------------------------------
-
         historial_poblaciones.append(
-            population.copy()
+            poblacion.copy()
         )
 
-        # ----------------------------------------------------
         # Evaluamos la población.
-        # ----------------------------------------------------
-
         fitness_values = np.array([
             fitness_function(individual)
-            for individual in population
+            for individual in poblacion
         ])
 
         # Mejor individuo de la generación.
@@ -517,7 +432,7 @@ def algoritmo_genetico(
         )
 
         current_best = (
-            population[
+            poblacion[
                 best_index
             ].copy()
         )
@@ -532,10 +447,7 @@ def algoritmo_genetico(
             current_best.copy()
         )
 
-        # ----------------------------------------------------
         # Mejor individuo global.
-        # ----------------------------------------------------
-
         if current_fitness > best_fitness:
 
             best_fitness = (
@@ -546,25 +458,14 @@ def algoritmo_genetico(
                 current_best.copy()
             )
 
-        # ----------------------------------------------------
         # Selección.
-        # ----------------------------------------------------
-
-        selected = (
-            seleccion_truncamiento(
-                population,
-                fitness_function
-            )
+        seleccionado = (
+            seleccion_truncamiento(poblacion, fitness_function)
         )
 
-        # ----------------------------------------------------
         # Cruce + mutación.
-        # ----------------------------------------------------
-
-        population = (
-            crear_nueva_poblacion(
-                selected
-            )
+        poblacion = (
+            crear_nueva_poblacion(seleccionado)
         )
 
         print(
@@ -579,10 +480,6 @@ def algoritmo_genetico(
         historial_mejores
     )
 
-
-# ============================================================
-# 16. MOSTRAR RESULTADOS
-# ============================================================
 
 def mostrar_resultados(
     titulo,
@@ -666,11 +563,6 @@ def mostrar_resultados(
         f"{fitness_value:.6f}"
     )
 
-
-# ============================================================
-# 17. GRAFICAR CARTERA
-# ============================================================
-
 def graficar_cartera(
     mejor_cartera,
     titulo="Distribución de la cartera óptima"
@@ -751,11 +643,6 @@ def graficar_cartera(
 
     plt.show()
 
-# ============================================================
-# 19. PREPARAR DATOS PARA EL GRÁFICO DE EVOLUCIÓN
-# ============================================================
-
-
 def convertir_historial_xy(
     historial_poblaciones
 ):
@@ -799,11 +686,6 @@ def convertir_historial_xy(
 
     return historial_xy
 
-
-# ============================================================
-# 20. GRAFICAR EVOLUCIÓN DE LAS GENERACIONES
-# ============================================================
-
 def graficar_evolucion(
     historial_poblaciones,
     fitness_function,
@@ -817,12 +699,7 @@ def graficar_evolucion(
     historial_xy = convertir_historial_xy(
         historial_poblaciones
     )
-
-    # --------------------------------------------------------
-    # Calculamos la frontera una sola vez.
-    # Lambda NO interviene en este cálculo.
-    # --------------------------------------------------------
-
+    
     fig, ax = plt.subplots(
         figsize=(9, 7)
     )
@@ -844,10 +721,7 @@ def graficar_evolucion(
         alpha=0.3
     )
 
-    # ========================================================
     # RANGO DE LOS EJES
-    # ========================================================
-
     todos_los_puntos = np.vstack(
         historial_xy
     )
@@ -884,20 +758,13 @@ def graficar_evolucion(
         y_max + margen_y
     )
 
-    # ========================================================
-    # FRONTERA DE MARKOWITZ
-    # ========================================================
-
     ax.plot(
 
         linewidth=2.5,
         label="Frontera eficiente de Markowitz"
     )
 
-    # ========================================================
     # POBLACIÓN
-    # ========================================================
-
     scatter = ax.scatter(
         historial_xy[0][:, 0],
         historial_xy[0][:, 1],
@@ -906,10 +773,7 @@ def graficar_evolucion(
         label="Población"
     )
 
-    # ========================================================
     # MEJOR INDIVIDUO
-    # ========================================================
-
     mejor_scatter = ax.scatter(
         [],
         [],
@@ -928,10 +792,7 @@ def graficar_evolucion(
 
     ax.legend()
 
-    # ========================================================
     # ACTUALIZACIÓN DE LA ANIMACIÓN
-    # ========================================================
-
     def actualizar(generacion):
 
         puntos = historial_xy[generacion]
@@ -997,11 +858,6 @@ def graficar_evolucion(
 
     return animacion
 
-
-# ============================================================
-# 21. COMPARAR MÉTODOS
-# ============================================================
-
 def comparar_metodos():
 
     print("\n")
@@ -1011,17 +867,10 @@ def comparar_metodos():
     )
     print("=" * 60)
 
-    # --------------------------------------------------------
     # Misma población inicial para ambos métodos.
-    # --------------------------------------------------------
-
     poblacion_inicial = (
         generar_poblacion()
     )
-
-    # --------------------------------------------------------
-    # FITNESS LAMBDA
-    # --------------------------------------------------------
 
     print(
         "\nEjecutando Fitness Lambda...\n"
@@ -1037,10 +886,7 @@ def comparar_metodos():
         poblacion_inicial
     )
 
-    # --------------------------------------------------------
     # FITNESS SHARPE
-    # --------------------------------------------------------
-
     print(
         "\nEjecutando Índice de Sharpe...\n"
     )
@@ -1055,12 +901,9 @@ def comparar_metodos():
         poblacion_inicial
     )
 
-    # --------------------------------------------------------
     # RESULTADOS INDIVIDUALES
-    # --------------------------------------------------------
-
     mostrar_resultados(
-        "RESULTADO - FITNESS LAMBDA",
+        f"RESULTADO - FITNESS LAMBDA = ${LAMBDA}",
         portfolio_lambda,
         fitness_lambda_value
     )
@@ -1071,10 +914,7 @@ def comparar_metodos():
         fitness_sharpe_value
     )
 
-    # --------------------------------------------------------
     # MÉTRICAS COMPARABLES
-    # --------------------------------------------------------
-
     return_lambda = (
         retorno_cartera(
             portfolio_lambda
@@ -1111,10 +951,7 @@ def comparar_metodos():
         )
     )
 
-    # --------------------------------------------------------
     # TABLA COMPARATIVA
-    # --------------------------------------------------------
-
     print("\n")
     print("=" * 70)
     print(
@@ -1141,13 +978,7 @@ def comparar_metodos():
         f"{risk_lambda:>18.6f}"
         f"{risk_sharpe:>18.6f}"
     )
-
-    print(
-        f"{'Índice de Sharpe':<30}"
-        f"{sharpe_lambda:>18.6f}"
-        f"{sharpe_sharpe:>18.6f}"
-    )
-
+    
     print("=" * 70)
 
     # --------------------------------------------------------
@@ -1187,13 +1018,9 @@ def comparar_metodos():
 
     print("=" * 70)
 
-    # --------------------------------------------------------
-    # GRÁFICOS DE CARTERA
-    # --------------------------------------------------------
-
     graficar_cartera(
         portfolio_lambda,
-        "Cartera óptima - Fitness Lambda"
+        f"Cartera óptima - Fitness Lambda = {LAMBDA}"
     )
 
     graficar_cartera(
@@ -1201,14 +1028,10 @@ def comparar_metodos():
         "Cartera óptima - Índice de Sharpe"
     )
 
-    # --------------------------------------------------------
-    # EVOLUCIÓN DE LAS GENERACIONES
-    # --------------------------------------------------------
-
     graficar_evolucion(
         historial_lambda,
         fitness_lambda,
-        "Evolución de las generaciones - Fitness Lambda"
+        f"Evolución de las generaciones - Fitness Lambda = {LAMBDA}"
     )
 
     graficar_evolucion(
@@ -1216,12 +1039,6 @@ def comparar_metodos():
         fitness_sharpe,
         "Evolución de las generaciones - Índice de Sharpe"
     )
-
-
-
-# ============================================================
-# 22. COMPARAR DISTINTOS VALORES DE LAMBDA
-# ============================================================
 
 def comparar_lambdas():
     """
@@ -1252,10 +1069,7 @@ def comparar_lambdas():
         valores_lambda
     )
     
-    # --------------------------------------------------------
     # Misma población inicial para todos los lambda.
-    # --------------------------------------------------------
-
     poblacion_inicial = generar_poblacion()
 
     resultados = []
@@ -1263,10 +1077,7 @@ def comparar_lambdas():
     # Guardamos las evoluciones para el gráfico conjunto.
     evoluciones = []
 
-    # --------------------------------------------------------
     # Ejecutamos un AG por cada lambda.
-    # --------------------------------------------------------
-
     for lambda_actual in valores_lambda:
 
         print(
@@ -1317,10 +1128,7 @@ def comparar_lambdas():
             cartera
         )
     )
-    # ========================================================
-    # TABLA DE RESULTADOS
-    # ========================================================
-
+  
     print("\n")
     print("=" * 85)
     print("                         RESULTADOS")
@@ -1348,10 +1156,7 @@ def comparar_lambdas():
 
     print("=" * 85)
 
-    # ========================================================
     # GRÁFICO COMPARATIVO DE EVOLUCIONES
-    # ========================================================
-
     fig, ax = plt.subplots(
         figsize=(10, 8)
     )
@@ -1359,10 +1164,7 @@ def comparar_lambdas():
 
     for lambda_actual, mejores, mejor_global in evoluciones:
 
-        # ========================================================
         # MEJOR INDIVIDUO DE CADA GENERACIÓN
-        # ========================================================
-
         riesgos_mejores = [
             riesgo_cartera(individuo) * 100
             for individuo in mejores
@@ -1373,10 +1175,7 @@ def comparar_lambdas():
             for individuo in mejores
         ]
 
-        # --------------------------------------------------------
         # Puntos aislados de la evolución
-        # --------------------------------------------------------
-
         ax.scatter(
             riesgos_mejores,
             rendimientos_mejores,
@@ -1384,9 +1183,7 @@ def comparar_lambdas():
             alpha=0.5
             )
 
-        # ========================================================
         # MEJOR INDIVIDUO GLOBAL DE TODA LA EJECUCIÓN
-        # ========================================================
 
         riesgo_global = (
             riesgo_cartera(mejor_global) * 100
@@ -1431,11 +1228,6 @@ def comparar_lambdas():
     plt.show()
 
     return resultados
-
-
-# ============================================================
-# 23. MENÚ PRINCIPAL
-# ============================================================
 
 def menu():
 
@@ -1500,13 +1292,13 @@ def menu():
 
             graficar_cartera(
                 best_portfolio,
-                "Cartera óptima - Fitness Lambda"
+                f"Cartera óptima - Fitness Lambda = {LAMBDA}"
             )
 
             graficar_evolucion(
                 historial_poblaciones,
                 fitness_lambda,
-                "Evolución de las generaciones - Fitness Lambda"
+                f"Evolución de las generaciones - Fitness Lambda = {LAMBDA}"
             )
 
         # ----------------------------------------------------
@@ -1581,11 +1373,6 @@ def menu():
                 "Intente nuevamente."
             )
 
-
-# ============================================================
-# 24. OBTENER DATOS Y EJECUTAR
-# ============================================================
-
 print(
     "\nObteniendo datos históricos..."
 )
@@ -1615,10 +1402,5 @@ print(
 print(
     retornos
 )
-
-
-# ============================================================
-# 25. INICIAR MENÚ
-# ============================================================
 
 menu()
