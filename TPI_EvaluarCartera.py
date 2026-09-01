@@ -1057,6 +1057,8 @@ def comparar_lambdas():
         0.5,
         1.0,
         2.0,
+        10.0,
+        8.0,
     ]
 
     print("\n")
@@ -1332,11 +1334,7 @@ def menu():
                 "Cartera óptima - Índice de Sharpe"
             )
 
-            graficar_evolucion(
-                historial_poblaciones,
-                fitness_sharpe,
-                "Evolución de las generaciones - Índice de Sharpe"
-            )
+            graficar_evolucion(historial_poblaciones, fitness_sharpe, "Evolución de las generaciones - Índice de Sharpe")
 
         # ----------------------------------------------------
         # OPCIÓN 3 - COMPARACIÓN
@@ -1360,30 +1358,18 @@ def menu():
 
         elif option == "0":
 
-            print(
-                "\nPrograma finalizado."
-            )
+            print("\nPrograma finalizado.")
 
             break
 
         else:
+            print("\nOpción inválida. ""Intente nuevamente.")
 
-            print(
-                "\nOpción inválida. "
-                "Intente nuevamente."
-            )
+print("\nObteniendo datos históricos...")
 
-print(
-    "\nObteniendo datos históricos..."
-)
+precios = obtener_precios(tickers)
 
-precios = obtener_precios(
-    tickers
-)
-
-retornos = calcular_rendimientos(
-    precios
-)
+retornos = calcular_rendimientos(precios)
 
 # Rendimiento esperado de cada activo.
 mu = retornos.mean().values
@@ -1391,16 +1377,10 @@ mu = retornos.mean().values
 # Matriz de covarianzas.
 cov_matrix = retornos.cov().values
 
-print(
-    "\nDatos obtenidos correctamente."
-)
+print("\nDatos obtenidos correctamente.")
 
-print(
-    "\n--- RENDIMIENTOS HISTÓRICOS ---"
-)
+print("\n--- RENDIMIENTOS HISTÓRICOS ---")
 
-print(
-    retornos
-)
+print(retornos)
 
 menu()
